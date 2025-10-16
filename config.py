@@ -1,6 +1,12 @@
 """
 System Configuration for Matching Theory Task Offloading Algorithm
 Contains configuration parameters and settings for the proposed algorithm
+
+UNLIMITED CAPACITY MODEL:
+- Fog nodes can process unlimited tasks (no hard capacity limit)
+- Waiting time increases with queue length to discourage overloading
+- Natural load balancing through dynamic waiting time calculation
+- Formula: ω_i = Σ(processing_times) + (num_tasks^1.5 × increment)
 """
 
 from dataclasses import dataclass
@@ -15,7 +21,10 @@ class SystemConfiguration:
     num_users: int = 5                    # Number of IoT users  
     num_servers: int = 4                  # Number of fog servers
     num_task_types: int = 4               # Number of task types
-    max_server_capacity: int = 4          # Maximum tasks per server (auto-calculated if fixed_task_count set)
+    
+    # Capacity model parameters
+    use_hybrid_capacity: bool = True      # Use hybrid capacity model (limited → unlimited when full)
+    initial_server_capacity: int = 3      # Initial capacity based on resources (tasks per server)
     network_area_size: float = 100.0      # Deployment area size (meters)
     
     # Wireless communication parameters
@@ -37,18 +46,15 @@ class SystemConfiguration:
     max_task_priority: int = 5           # Maximum task priority
     fixed_task_count: Optional[int] = None  # Fixed number of tasks to generate (overrides user-based generation)
     
-    def __post_init__(self):
-        """Auto-calculate server capacity based on fixed task count"""
-        if self.fixed_task_count is not None and self.fixed_task_count > 0:
-            # Auto-calculate capacity: tasks ÷ servers (rounded up to ensure all tasks fit)
-            import math
-            auto_capacity = math.ceil(self.fixed_task_count / self.num_servers)
-            self.max_server_capacity = auto_capacity
-            print(f"Auto-calculated server capacity: {self.fixed_task_count} tasks ÷ {self.num_servers} servers = {auto_capacity} capacity per server")
+    # Waiting time model parameters (for hybrid/unlimited capacity)
+    base_processing_time_factor: float = 1.0  # Base factor for processing time calculation
+    waiting_time_increment: float = 0.1       # Waiting time increment per task in queue (when over capacity)
+    waiting_time_penalty_exponent: float = 1.5  # Exponent for queue penalty (1.5 = super-linear growth)
     
     # Algorithm parameters
     max_matching_rounds: int = 20        # Maximum rounds for matching algorithm
     preference_randomization_prob: float = 0.2  # Probability of preference randomization
+    random_seed: Optional[int] = None    # Random seed for reproducibility (None = random each run)
     
     # Energy model parameters
     idle_power: float = 0.01             # Idle power consumption (Watts)
@@ -68,9 +74,6 @@ class SystemConfiguration:
         
         if self.num_servers <= 0:
             errors.append("Number of servers must be positive")
-        
-        if self.max_server_capacity <= 0:
-            errors.append("Maximum server capacity must be positive")
         
         if self.transmission_power <= 0:
             errors.append("Transmission power must be positive")
@@ -111,7 +114,7 @@ class SystemConfiguration:
         summary.append(f"  • Users: {self.num_users}")
         summary.append(f"  • Servers: {self.num_servers}")
         summary.append(f"  • Task Types: {self.num_task_types}")
-        summary.append(f"  • Max Server Capacity: {self.max_server_capacity}")
+        summary.append(f"  • Unlimited Capacity: {self.unlimited_capacity}")
         summary.append(f"  • Network Area: {self.network_area_size}×{self.network_area_size}m")
         
         summary.append(f"\nWireless Communication:")
@@ -141,7 +144,7 @@ class ConfigurationPresets:
             num_users=3,
             num_servers=2,
             num_task_types=2,
-            max_server_capacity=1,
+            unlimited_capacity=True,
             network_area_size=50.0
         )
     
@@ -152,7 +155,7 @@ class ConfigurationPresets:
             num_users=5,
             num_servers=4,
             num_task_types=3,
-            max_server_capacity=2,
+            unlimited_capacity=True,
             network_area_size=100.0
         )
     
@@ -163,7 +166,7 @@ class ConfigurationPresets:
             num_users=10,
             num_servers=6,
             num_task_types=4,
-            max_server_capacity=3,
+            unlimited_capacity=True,
             network_area_size=200.0
         )
     
@@ -174,7 +177,7 @@ class ConfigurationPresets:
             num_users=8,
             num_servers=4,
             num_task_types=3,
-            max_server_capacity=4,
+            unlimited_capacity=True,
             network_area_size=150.0,
             server_frequency=4e9  # Higher server frequency
         )
@@ -186,7 +189,7 @@ class ConfigurationPresets:
             num_users=6,
             num_servers=3,
             num_task_types=2,
-            max_server_capacity=2,
+            unlimited_capacity=True,
             network_area_size=80.0,
             transmission_power=0.05,  # Lower transmission power
             min_task_data_size=5e5,   # Smaller tasks
@@ -226,7 +229,7 @@ def main():
     for name, config in presets.items():
         print(f"\n{name}:")
         print(f"  Users: {config.num_users}, Servers: {config.num_servers}")
-        print(f"  Max Capacity: {config.max_server_capacity}")
+        print(f"  Unlimited Capacity: {config.unlimited_capacity}")
         print(f"  Network Area: {config.network_area_size}m")
         print(f"  Server Freq: {config.server_frequency/1e9:.1f}GHz")
 

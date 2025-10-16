@@ -140,14 +140,30 @@ class ProposedTaskOffloadingAlgorithm:
                 self.computation_costs[i][j] = base_cost * resource_factor
     
     def _initialize_server_capacities(self):
-        """Initialize server capacity constraints"""
+        """
+        Initialize server state for HYBRID capacity model:
+        - Initially: Limited capacity based on resources (config.initial_server_capacity)
+        - When full: Switch to unlimited capacity with increasing waiting times
+        """
         for server in self.servers:
-            # Capacity based on configuration (ensure all servers get max capacity)
-            capacity = self.config.max_server_capacity
-            self.server_capacities[server['id']] = capacity
+            if self.config.use_hybrid_capacity:
+                # Hybrid model: Start with limited capacity
+                initial_capacity = self.config.initial_server_capacity
+                self.server_capacities[server['id']] = initial_capacity
+                print(f"  {server['id']}: Initial capacity = {initial_capacity} tasks")
+            else:
+                # Pure unlimited capacity model
+                self.server_capacities[server['id']] = float('inf')
             
             # Initialize waiting time ωᵢ for each server (pseudocode line 17)
             self.server_waiting_times[server['id']] = 0.0
+        
+        if self.config.use_hybrid_capacity:
+            print(f"✅ Initialized servers with HYBRID capacity model")
+            print(f"   Initial capacity: {self.config.initial_server_capacity} tasks/server")
+            print(f"   After full: Unlimited capacity with increasing waiting times")
+        else:
+            print(f"✅ Initialized servers with UNLIMITED capacity model")
     
     def create_preference_matrices_using_formulas(self):
         """
@@ -250,10 +266,15 @@ class ProposedTaskOffloadingAlgorithm:
         max_rounds = 10000  # Much higher limit for complex scenarios
         consecutive_no_progress = 0
         # Scale max_no_progress based on system size for better convergence
-        max_no_progress = max(10, min(50, len(self.tasks) // 100))  # Dynamic limit based on task count
+        # Formula: Allow enough rounds for all tasks to be processed considering per-round limits
+        tasks_per_server_per_round = (self.config.initial_server_capacity * 2) if self.config.use_hybrid_capacity else 100
+        estimated_rounds_needed = (len(self.tasks) // (len(self.servers) * tasks_per_server_per_round)) + 5
+        max_no_progress = max(20, min(100, estimated_rounds_needed))  # At least 20, up to 100 rounds
         
         print(f"\nStarting matching process with {len(unassigned_tasks)} tasks...")
         print(f"System scale: {len(self.tasks)} tasks, {len(self.servers)} servers")
+        print(f"Per-round limit: {tasks_per_server_per_round} tasks/server")
+        print(f"Estimated rounds needed: ~{estimated_rounds_needed}")
         print(f"Max no-progress rounds: {max_no_progress}")
         
         while unassigned_tasks and round_num <= max_rounds and consecutive_no_progress < max_no_progress:
@@ -277,67 +298,119 @@ class ProposedTaskOffloadingAlgorithm:
                     
                     print(f"  Task {task_id} (via {user_id}) → {preferred_server}")
                 else:
-                    # Task has exhausted all preferences
-                    print(f"  Task {task_id} has no more server options")
-                    unassigned_tasks.remove(task_id)
+                    # Task has exhausted all preferences - this should not happen with unlimited capacity
+                    # Keep task in unassigned list, don't remove it!
+                    print(f"  ⚠️ WARNING: Task {task_id} exhausted all {len(user_prefs[user_id])} server preferences!")
+                    # DO NOT remove from unassigned_tasks - let preference regeneration help it
             
-            # Phase 2: Server decisions based on preferences and capacity
+            # Phase 2: Server decisions with HYBRID CAPACITY
             for server_id, proposing_tasks in proposals.items():
                 current_tasks = server_assignments[server_id].copy()
                 capacity = self.server_capacities[server_id]
+                current_count = len(current_tasks)
                 
-                print(f"  Server {server_id} (capacity: {capacity}) receives: {proposing_tasks}")
+                # Check if using hybrid capacity and if at/over initial capacity
+                is_hybrid = self.config.use_hybrid_capacity
+                initial_cap = self.config.initial_server_capacity if is_hybrid else float('inf')
+                is_at_capacity = current_count >= initial_cap if is_hybrid else False
                 
-                # Combine current assignments with new proposals
-                all_candidates = current_tasks + proposing_tasks
-                
-                if len(all_candidates) <= capacity:
-                    # Accept all tasks
-                    server_assignments[server_id] = all_candidates
-                    for task_id in proposing_tasks:
-                        if task_id in unassigned_tasks:
-                            unassigned_tasks.remove(task_id)
-                            tasks_assigned_this_round += 1
-                            print(f"    ✓ {server_id} accepts {task_id}")
-                else:
-                    # Need to select based on server preferences
+                if is_hybrid and current_count < initial_cap:
+                    # PHASE 2A: Under initial capacity - accept up to capacity limit
+                    print(f"  Server {server_id} (capacity: {current_count}/{initial_cap}) receives: {proposing_tasks}")
+                    
+                    all_candidates = current_tasks + proposing_tasks
                     server_pref_order = server_prefs[server_id]
                     
-                    # Sort candidates by server preference (higher preference first)
+                    # Sort by server preference
                     def get_preference_rank(task_id):
                         try:
                             return server_pref_order.index(task_id)
                         except ValueError:
-                            return len(server_pref_order)  # Lowest priority for unlisted tasks
+                            return len(server_pref_order)
                     
                     all_candidates.sort(key=get_preference_rank)
                     
-                    # Accept top 'capacity' candidates
-                    accepted = all_candidates[:capacity]
-                    rejected = all_candidates[capacity:]
+                    # Accept only up to initial capacity
+                    slots_available = initial_cap - current_count
+                    accepted = all_candidates[:initial_cap]
+                    rejected = all_candidates[initial_cap:]
                     
                     server_assignments[server_id] = accepted
                     
                     # Update task status
                     for task_id in proposing_tasks:
-                        if task_id in accepted:
-                            if task_id in unassigned_tasks:
+                        if task_id in accepted and task_id in unassigned_tasks:
+                            unassigned_tasks.remove(task_id)
+                            tasks_assigned_this_round += 1
+                            print(f"    ✓ {server_id} accepts {task_id} (position: {accepted.index(task_id) + 1}/{initial_cap})")
+                        elif task_id in rejected:
+                            task_current_preference[task_id] += 1
+                            print(f"    ✗ {server_id} rejects {task_id} (capacity full, try next preference)")
+                    
+                    # Switch to unlimited if now at capacity
+                    if len(accepted) >= initial_cap:
+                        print(f"    ⚠️  {server_id} reached capacity! Switching to UNLIMITED mode with waiting times")
+                    
+                    print(f"    Current: {len(server_assignments[server_id])}/{initial_cap} tasks")
+                    
+                else:
+                    # PHASE 2B: At/over capacity OR pure unlimited - accept all with waiting time penalty
+                    mode = "over capacity" if is_hybrid else "unlimited capacity"
+                    print(f"  Server {server_id} ({mode}, current: {current_count}) receives: {proposing_tasks}")
+                    
+                    all_candidates = current_tasks + proposing_tasks
+                    server_pref_order = server_prefs[server_id]
+                    
+                    # Sort by server preference
+                    def get_preference_rank(task_id):
+                        try:
+                            return server_pref_order.index(task_id)
+                        except ValueError:
+                            return len(server_pref_order)
+                    
+                    all_candidates.sort(key=get_preference_rank)
+                    
+                    # LOAD BALANCING: Limit acceptances per round to prevent avalanche effect
+                    # Accept up to 2x initial capacity per round when over capacity
+                    max_new_per_round = initial_cap * 2 if is_hybrid else float('inf')
+                    num_new_accepted = min(len(proposing_tasks), max_new_per_round)
+                    
+                    # Accept limited number of new tasks
+                    if is_hybrid and num_new_accepted < len(proposing_tasks):
+                        # Accept top-ranked new proposals
+                        newly_accepted = [t for t in all_candidates if t in proposing_tasks][:num_new_accepted]
+                        newly_rejected = [t for t in proposing_tasks if t not in newly_accepted]
+                        accepted_candidates = current_tasks + newly_accepted
+                        
+                        print(f"    ⚠️  Load balancing: accepting {num_new_accepted}/{len(proposing_tasks)} new tasks (limit: {max_new_per_round}/round)")
+                    else:
+                        # Accept ALL tasks (no limit or limit not reached)
+                        accepted_candidates = all_candidates
+                        newly_rejected = []
+                    
+                    server_assignments[server_id] = accepted_candidates
+                    
+                    # Update task status
+                    for task_id in proposing_tasks:
+                        if task_id in unassigned_tasks:
+                            if task_id in newly_rejected:
+                                # Rejected due to per-round limit
+                                task_current_preference[task_id] += 1
+                                print(f"    ✗ {server_id} rejects {task_id} (per-round limit reached, try next preference)")
+                            else:
+                                # Accepted
                                 unassigned_tasks.remove(task_id)
                                 tasks_assigned_this_round += 1
-                                print(f"    ✓ {server_id} accepts {task_id}")
-                        else:
-                            # Task rejected, move to next preference
-                            task_current_preference[task_id] += 1
-                            print(f"    ✗ {server_id} rejects {task_id}")
+                                if is_hybrid and current_count >= initial_cap:
+                                    print(f"    ✓ {server_id} accepts {task_id} (queue position: {accepted_candidates.index(task_id) + 1}, ⚠️ over capacity)")
+                                else:
+                                    print(f"    ✓ {server_id} accepts {task_id} (queue position: {accepted_candidates.index(task_id) + 1})")
                     
-                    # Handle previously assigned tasks that got bumped
-                    for task_id in rejected:
-                        if task_id in current_tasks:
-                            unassigned_tasks.add(task_id)
-                            task_current_preference[task_id] += 1
-                            print(f"    ⟲ {server_id} bumps {task_id}")
-                
-                print(f"    Current assignments: {server_assignments[server_id]}")
+                    print(f"    Current assignments: {len(server_assignments[server_id])} tasks in queue")
+                    
+                    # IMMEDIATE WAITING TIME UPDATE (prevent avalanche effect)
+                    # Update this server's waiting time now so subsequent proposals see the increased load
+                    self._update_single_server_waiting_time(server_id, server_assignments[server_id])
             
             # Step 17 from pseudocode: Each FN sends to EDs its waiting time ωᵢ
             self._update_server_waiting_times(server_assignments)
@@ -355,119 +428,66 @@ class ProposedTaskOffloadingAlgorithm:
                 print(f"  No progress: {consecutive_no_progress}/{max_no_progress} consecutive rounds without assignments")
                 print(f"  Remaining unassigned: {remaining} tasks")
             
-            # Check if we've reached termination conditions
+            # With unlimited capacity, termination is simpler
+            # Tasks should all be assigned in first round since no capacity constraints
             if consecutive_no_progress >= max_no_progress:
-                print(f"  Max no-progress rounds ({max_no_progress}) reached - attempting emergency allocation...")
-                
-                # Emergency allocation: try to place unassigned tasks in any available capacity
-                emergency_assigned = 0
-                for task_id in list(unassigned_tasks):
-                    user_id = task_to_user[task_id]
-                    task_assigned = False
-                    
-                    # Try all servers in order of available capacity
-                    servers_by_capacity = sorted(server_assignments.keys(), 
-                                               key=lambda s: len(server_assignments[s]))
-                    
-                    for server_id in servers_by_capacity:
-                        current_capacity = len(server_assignments[server_id])
-                        max_capacity = self.server_capacities[server_id]
-                        
-                        if current_capacity < max_capacity:
-                            # Force assignment
-                            server_assignments[server_id].append(task_id)
-                            unassigned_tasks.remove(task_id)
-                            emergency_assigned += 1
-                            task_assigned = True
-                            print(f"    Emergency assignment: {task_id} → {server_id}")
-                            break
-                    
-                    if not task_assigned:
-                        print(f"    Could not assign {task_id} - no available capacity")
-                
-                if emergency_assigned > 0:
-                    print(f"  Emergency allocation assigned {emergency_assigned} tasks")
-                    consecutive_no_progress = 0  # Reset counter after successful emergency allocation
-                    continue
-                else:
-                    print("  Emergency allocation could not assign any tasks")
-                    break
+                print(f"  Algorithm converged after {round_num} rounds")
+                break
             
-            # Steps 19-21 from pseudocode: For each unallocated task, update Oj(·) and propose preferred FN
-            # Only regenerate preferences if there are unassigned tasks that haven't exhausted options
+            # Steps 19-21 from pseudocode: Update preferences AFTER EVERY ROUND based on new waiting times
+            # This allows tasks to react to changing server loads dynamically
             if unassigned_tasks:
-                # Check if any unassigned task still has preferences to explore
+                # ALWAYS update preferences after each round to reflect new waiting times
+                # This implements the dynamic preference mechanism from the paper (lines 19-21)
+                print("  📊 Updating preferences based on new waiting times...")
+                
+                # Regenerate user preferences with updated waiting times
+                user_prefs = self.generate_user_preferences()
+                
+                # Also update server preferences to reflect new loads
+                server_prefs = self.generate_server_preferences()
+                
+                # Reset preference indices for unallocated tasks to try new rankings
+                for task_id in unassigned_tasks:
+                    task_current_preference[task_id] = 0
+                
+                # Show updated waiting times
+                print("  ⏱️  Updated server waiting times:")
+                for server_id in sorted(self.server_waiting_times.keys()):
+                    wt = self.server_waiting_times[server_id]
+                    num_tasks = len(server_assignments.get(server_id, []))
+                    print(f"      {server_id}: {wt:.3f}s ({num_tasks} tasks)")
+                
+                # NOW check if any unassigned task still has preferences to explore
+                # This check is AFTER regeneration, so tasks have fresh preferences
                 has_viable_tasks = any(
                     task_current_preference[task_id] < len(user_prefs[task_to_user[task_id]]) 
                     for task_id in unassigned_tasks
                 )
                 
                 if not has_viable_tasks and tasks_assigned_this_round == 0:
-                    print("  No more viable assignments possible - attempting emergency allocation...")
-                    
-                    # Emergency allocation: try to place unassigned tasks in any available capacity
-                    emergency_assigned = 0
-                    for task_id in list(unassigned_tasks):
-                        user_id = task_to_user[task_id]
-                        task_assigned = False
-                        
-                        # Try all servers in order of available capacity
-                        servers_by_capacity = sorted(server_assignments.keys(), 
-                                                   key=lambda s: len(server_assignments[s]))
-                        
-                        for server_id in servers_by_capacity:
-                            current_capacity = len(server_assignments[server_id])
-                            max_capacity = self.server_capacities[server_id]
-                            
-                            if current_capacity < max_capacity:
-                                # Force assignment
-                                server_assignments[server_id].append(task_id)
-                                unassigned_tasks.remove(task_id)
-                                emergency_assigned += 1
-                                task_assigned = True
-                                print(f"    Emergency assignment: {task_id} → {server_id}")
-                                break
-                        
-                        if not task_assigned:
-                            print(f"    Could not assign {task_id} - no available capacity")
-                    
-                    if emergency_assigned > 0:
-                        print(f"  Emergency allocation assigned {emergency_assigned} tasks")
-                        continue
-                    else:
-                        print("  Final unassigned tasks:", sorted(unassigned_tasks))
-                        break
-                    
-                if has_viable_tasks and consecutive_no_progress > 0:
-                    # Update user preferences with new waiting times (line 20: update Oj(·))
-                    print("  Updating preferences with new waiting times...")
-                    user_prefs = self.generate_user_preferences()
-                    # Reset preference indices for unallocated tasks to try new preferences
-                    for task_id in unassigned_tasks:
-                        task_current_preference[task_id] = 0
-                elif consecutive_no_progress >= max_no_progress // 2:
-                    # Try updating preferences more aggressively when getting close to limit
-                    print("  Aggressive preference update - trying to break deadlock...")
-                    user_prefs = self.generate_user_preferences()
-                    # Add small random perturbations to break ties and identical preferences
-                    import random
-                    for user_id in user_prefs:
-                        if len(unassigned_tasks) > 0:
-                            # Randomly shuffle tied preferences to create diversity
-                            prefs = user_prefs[user_id].copy()
-                            # Create small groups and shuffle within groups to add diversity
-                            mid = len(prefs) // 2
-                            if random.random() < 0.3:  # 30% chance to shuffle top half
-                                top_half = prefs[:mid]
-                                random.shuffle(top_half)
-                                prefs[:mid] = top_half
-                            if random.random() < 0.3:  # 30% chance to shuffle bottom half  
-                                bottom_half = prefs[mid:]
-                                random.shuffle(bottom_half)
-                                prefs[mid:] = bottom_half
-                            user_prefs[user_id] = prefs
-                    for task_id in unassigned_tasks:
-                        task_current_preference[task_id] = 0
+                    print("  ⚠️ All tasks explored all preferences after regeneration")
+                    break
+            
+            # Handle aggressive preference update for deadlock breaking
+            if consecutive_no_progress >= max_no_progress // 2 and unassigned_tasks:
+                print("  ⚠️  Aggressive update - adding randomization to break deadlock...")
+                import random
+                for user_id in user_prefs:
+                    if len(unassigned_tasks) > 0:
+                        # Randomly shuffle tied preferences to create diversity
+                        prefs = user_prefs[user_id].copy()
+                        # Create small groups and shuffle within groups to add diversity
+                        mid = len(prefs) // 2
+                        if random.random() < 0.3:  # 30% chance to shuffle top half
+                            top_half = prefs[:mid]
+                            random.shuffle(top_half)
+                            prefs[:mid] = top_half
+                        if random.random() < 0.3:  # 30% chance to shuffle bottom half  
+                            bottom_half = prefs[mid:]
+                            random.shuffle(bottom_half)
+                            prefs[mid:] = bottom_half
+                        user_prefs[user_id] = prefs
             
             round_num += 1
         
@@ -522,49 +542,124 @@ class ProposedTaskOffloadingAlgorithm:
             print(f"  Unassigned task IDs: {sorted(actually_unassigned)}")
         
         # Show final allocation summary
-        print(f"\n🏆 FINAL TASK ALLOCATION:")
+        print(f"\n🏆 FINAL TASK ALLOCATION (UNLIMITED CAPACITY MODEL):")
         for server_id, assigned_tasks in server_assignments.items():
-            capacity = self.server_capacities[server_id]
-            utilization = len(assigned_tasks) / capacity * 100 if capacity > 0 else 0
+            num_tasks = len(assigned_tasks)
+            waiting_time = self.server_waiting_times.get(server_id, 0.0)
             if assigned_tasks:
-                print(f"  {server_id} ({utilization:.1f}% utilized): {assigned_tasks}")
+                print(f"  {server_id}: {num_tasks} tasks (waiting time: {waiting_time:.3f}s)")
+                print(f"    Tasks: {assigned_tasks[:10]}{'...' if len(assigned_tasks) > 10 else ''}")
             else:
-                print(f"  {server_id} ({utilization:.1f}% utilized): No tasks assigned")
+                print(f"  {server_id}: No tasks assigned")
         
         self.final_allocation = server_assignments
         return server_assignments
     
+    def _update_single_server_waiting_time(self, server_id: str, assigned_tasks: List[str]):
+        """
+        Update waiting time for a single server immediately (prevents avalanche effect).
+        Called after each server acceptance to reflect load changes in real-time.
+        """
+        num_assigned = len(assigned_tasks)
+        
+        # Get server information
+        server_info = next(s for s in self.servers if s['id'] == server_id)
+        
+        # Determine initial capacity
+        is_hybrid = self.config.use_hybrid_capacity
+        initial_capacity = self.config.initial_server_capacity if is_hybrid else 0
+        
+        # Calculate total processing time
+        total_processing_time = 0.0
+        for task_id in assigned_tasks:
+            task_info = next(t for t in self.tasks if t['id'] == task_id)
+            processing_time = task_info['computation_requirement'] / server_info['computational_capability']
+            total_processing_time += processing_time
+        
+        if is_hybrid and num_assigned <= initial_capacity:
+            # Under capacity: parallel processing
+            waiting_time = total_processing_time / min(num_assigned, initial_capacity) if num_assigned > 0 else 0.0
+        else:
+            # Over capacity: sequential with penalty
+            tasks_over_capacity = max(0, num_assigned - initial_capacity) if is_hybrid else num_assigned
+            base_waiting_time = total_processing_time
+            
+            if is_hybrid:
+                queue_penalty = (tasks_over_capacity ** self.config.waiting_time_penalty_exponent) * self.config.waiting_time_increment
+            else:
+                queue_penalty = (num_assigned ** self.config.waiting_time_penalty_exponent) * self.config.waiting_time_increment
+            
+            waiting_time = base_waiting_time + queue_penalty
+        
+        # Update immediately
+        self.server_waiting_times[server_id] = waiting_time
+        print(f"      ⚡ {server_id} waiting time updated: {waiting_time:.3f}s ({num_assigned} tasks)")
+    
     def _update_server_waiting_times(self, server_assignments: Dict[str, List[str]]):
         """
-        Update server waiting times ωᵢ as specified in pseudocode line 17:
-        "each FN i do: send to EDs its waiting time ωᵢ"
+        Update server waiting times ωᵢ for HYBRID CAPACITY model:
+        - Under capacity: Minimal waiting time (concurrent processing)
+        - Over capacity: Waiting time increases with queue length
         
-        This updates the waiting time for each server based on current load
+        Formula (over capacity): ωᵢ = Σ(processing_time_j) + queue_penalty
+        where queue_penalty increases with tasks beyond initial capacity
         """
         for server_id in self.server_capacities.keys():
             assigned_tasks = server_assignments.get(server_id, [])
             num_assigned = len(assigned_tasks)
-            capacity = self.server_capacities[server_id]
             
-            # Calculate waiting time based on current load and server characteristics
+            # Get server information
             server_info = next(s for s in self.servers if s['id'] == server_id)
             
-            # Calculate load factor (utilization ratio)
-            load_factor = num_assigned / capacity if capacity > 0 else 0.0
+            # Determine initial capacity
+            is_hybrid = self.config.use_hybrid_capacity
+            initial_capacity = self.config.initial_server_capacity if is_hybrid else 0
             
-            # Calculate expected processing time for current queue
+            # Calculate total processing time for all tasks in queue
             total_processing_time = 0.0
             for task_id in assigned_tasks:
                 task_info = next(t for t in self.tasks if t['id'] == task_id)
                 processing_time = task_info['computation_requirement'] / server_info['computational_capability']
                 total_processing_time += processing_time
             
-            # Waiting time calculation: ωᵢ = queue_processing_time + load_penalty
-            base_waiting_time = total_processing_time
-            load_penalty = load_factor * 0.5  # Additional penalty for high utilization
+            if is_hybrid and num_assigned <= initial_capacity:
+                # UNDER CAPACITY: Minimal waiting time (tasks can process concurrently up to capacity)
+                # Average processing time (assuming parallel processing within capacity)
+                waiting_time = total_processing_time / min(num_assigned, initial_capacity) if num_assigned > 0 else 0.0
+                
+                if num_assigned > 0:
+                    print(f"    Server {server_id}: {num_assigned}/{initial_capacity} tasks → waiting time: {waiting_time:.3f}s " +
+                          f"(under capacity, parallel processing)")
+            else:
+                # OVER CAPACITY or UNLIMITED: Sequential processing with queue penalty
+                # Calculate tasks beyond initial capacity
+                tasks_over_capacity = max(0, num_assigned - initial_capacity) if is_hybrid else num_assigned
+                
+                # Base waiting time: sum of processing times
+                base_waiting_time = total_processing_time
+                
+                # Queue penalty: increases non-linearly with queue length beyond capacity
+                # Using exponent from config (default 1.5 for super-linear growth)
+                if is_hybrid:
+                    # Penalty only for tasks beyond initial capacity
+                    queue_penalty = (tasks_over_capacity ** self.config.waiting_time_penalty_exponent) * self.config.waiting_time_increment
+                else:
+                    # Pure unlimited: penalty for all tasks
+                    queue_penalty = (num_assigned ** self.config.waiting_time_penalty_exponent) * self.config.waiting_time_increment
+                
+                # Total waiting time
+                waiting_time = base_waiting_time + queue_penalty
+                
+                if num_assigned > 0:
+                    if is_hybrid:
+                        print(f"    Server {server_id}: {num_assigned} tasks ({tasks_over_capacity} over capacity) → waiting time: {waiting_time:.3f}s " +
+                              f"(processing: {base_waiting_time:.3f}s + queue penalty: {queue_penalty:.3f}s)")
+                    else:
+                        print(f"    Server {server_id}: {num_assigned} tasks → waiting time: {waiting_time:.3f}s " +
+                              f"(processing: {base_waiting_time:.3f}s + queue penalty: {queue_penalty:.3f}s)")
             
             # Update server waiting time (this will affect next round's preference calculations)
-            self.server_waiting_times[server_id] = base_waiting_time + load_penalty
+            self.server_waiting_times[server_id] = waiting_time
     
     def calculate_performance_metrics(self, allocation: Dict[str, List[str]]) -> Dict:
         """
@@ -579,7 +674,7 @@ class ProposedTaskOffloadingAlgorithm:
         # Initialize unified calculator if not already done
         if self.unified_calculator is None:
             self.unified_calculator = SimulationMetrics(
-                self.tasks, self.servers, self.users, self.server_capacities, self.transmission_delays
+                self.tasks, self.servers, self.users, self.server_capacities, self.transmission_delays, self.config
             )
         
         # Run unified simulation and get all results
@@ -602,7 +697,7 @@ class ProposedTaskOffloadingAlgorithm:
         # Initialize unified calculator if not already done
         if self.unified_calculator is None:
             self.unified_calculator = SimulationMetrics(
-                self.tasks, self.servers, self.users, self.server_capacities, self.transmission_delays
+                self.tasks, self.servers, self.users, self.server_capacities, self.transmission_delays, self.config
             )
         
         # Run unified simulation and calculate metrics
@@ -658,20 +753,41 @@ class ProposedTaskOffloadingAlgorithm:
 
 def main():
     """Main function to run the proposed algorithm"""
-    # Set random seed for reproducible results using utility function
-    set_random_seeds(42)
-    
-    # Create configuration for 5 servers and exactly 20 tasks
+    # Create configuration for 5 servers and exactly 1000 tasks
     config = SystemConfiguration(
         num_users=10,                      # 10 users (for task distribution)
         num_servers=5,                     # 5 fog servers
         num_task_types=10,                 # 10 task types for variety
         network_area_size=500.0,           # Large coverage area
-        fixed_task_count=10                 # FIXED: Generate exactly 10 tasks (quick test)
+        fixed_task_count=500,             # Generate exactly 10 tasks
+        random_seed=None                   # None = different results each run, or set to int for reproducibility
     )
+    
+    # Set random seed based on config (None = truly random)
+    if config.random_seed is None:
+        # Generate random seed from system time
+        import time
+        random_seed = int(time.time() * 1000) % (2**32)
+        print(f"Using random seed: {random_seed} (set config.random_seed={random_seed} to reproduce)")
+    else:
+        random_seed = config.random_seed
+        print(f"Using fixed seed: {random_seed} (reproducible results)")
+    
+    set_random_seeds(random_seed)
     
     # Create and run the proposed algorithm
     proposed_algorithm = ProposedTaskOffloadingAlgorithm(config)
+    
+    # Debug: Show first few server/user positions to verify randomness
+    print(f"\n=== Verifying Randomness ===")
+    print(f"First 3 server positions:")
+    for server in proposed_algorithm.servers[:3]:
+        print(f"  {server['id']}: ({server['position'][0]:.2f}, {server['position'][1]:.2f}), CPU: {server['computational_capability']/1e9:.2f}GHz")
+    print(f"First 3 user positions:")
+    for user in proposed_algorithm.users[:3]:
+        print(f"  {user['id']}: ({user['position'][0]:.2f}, {user['position'][1]:.2f})")
+    print(f"={'='*50}\n")
+    
     results = proposed_algorithm.run_complete_algorithm()
 
 

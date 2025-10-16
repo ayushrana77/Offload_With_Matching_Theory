@@ -23,7 +23,7 @@ class SimulationMetrics:
     """
     
     def __init__(self, tasks: List[Dict], servers: List[Dict], users: List[Dict], 
-                 server_capacities: Dict[str, int], transmission_delays: any):
+                 server_capacities: Dict[str, int], transmission_delays: any, config=None):
         """
         Initialize the simulation-based metrics calculator
         
@@ -33,12 +33,14 @@ class SimulationMetrics:
             users: List of user dictionaries
             server_capacities: Dictionary mapping server_id to capacity limits
             transmission_delays: Matrix of transmission delays between users and servers
+            config: SystemConfiguration object (optional, for hybrid capacity detection)
         """
         self.tasks = tasks
         self.servers = servers
         self.users = users
         self.server_capacities = server_capacities
         self.transmission_delays = transmission_delays
+        self.config = config
         
     def run_simulation_and_calculate_metrics(self, allocation: Dict[str, List[str]]) -> Dict:
         """
@@ -126,7 +128,7 @@ class SimulationMetrics:
         self._calculate_waiting_times_from_simulation(simulation_results)
         
         # Print simulation summary
-        self._print_simulation_summary(simulation_time, server_queues, simulation_results)
+        self._print_simulation_summary(simulation_time, server_queues, simulation_results, allocation)
         
         return simulation_results
     
@@ -165,13 +167,14 @@ class SimulationMetrics:
         # Simulation parameters
         simulation_time = 0
         time_step = 0.1  # 100ms time steps
-        max_simulation_time = 10.0  # Maximum 10 seconds simulation
+        # No maximum time limit - run until all tasks complete
         
         print(f"\n⏱️  STARTING SIMULATION (time step: {time_step}s)")
+        print("📋 Will run until ALL tasks are completed")
         print("-" * 70)
         
-        # Simulation loop
-        while simulation_time < max_simulation_time:
+        # Simulation loop - run until all tasks complete
+        while True:
             active_servers = 0
             
             for server_id, queue_info in server_queues.items():
@@ -187,9 +190,15 @@ class SimulationMetrics:
                 if queue_info['current_task'] or queue_info['tasks']:
                     active_servers += 1
             
-            # Break if no servers are active
+            # Break if no servers are active (all tasks completed)
             if active_servers == 0:
                 print(f"\n🏁 All tasks completed at {simulation_time:.1f}s")
+                break
+            
+            # Safety check to prevent infinite loops (very generous limit)
+            if simulation_time > 1000.0:  # 1000 seconds = ~16 minutes max
+                print(f"\n⚠️  Simulation timeout after {simulation_time:.1f}s")
+                print(f"   Some tasks may not have completed due to system limitations")
                 break
             
             simulation_time += time_step
@@ -375,11 +384,32 @@ class SimulationMetrics:
             jains_index_IJ = 1.0 if len(completion_times) == 1 else 0.0
         
         # Server utilization fairness from actual execution
+        # For unlimited capacity: use actual workload (processing time / total time)
         server_utilizations_list = []
         for server_id in [s['id'] for s in self.servers]:
             capacity = self.server_capacities.get(server_id, 1)
             assigned = len(allocation.get(server_id, []))
-            utilization = assigned / capacity if capacity > 0 else 0
+            
+            if capacity == float('inf'):
+                # Unlimited capacity: use actual utilization from simulation data
+                if server_id in allocation and allocation[server_id] and total_simulation_time > 0:
+                    # Calculate actual processing time for this server
+                    total_processing_time = 0
+                    for task_id in allocation[server_id]:
+                        task = next((t for t in self.tasks if t['id'] == task_id), None)
+                        if task:
+                            server = next(s for s in self.servers if s['id'] == server_id)
+                            processing_time = task['computation_requirement'] / server['computational_capability']
+                            total_processing_time += processing_time
+                    
+                    # Utilization = actual work time / total simulation time
+                    utilization = min(total_processing_time / total_simulation_time, 1.0)
+                else:
+                    utilization = 0.0
+            else:
+                # Limited capacity: use traditional calculation
+                utilization = assigned / capacity if capacity > 0 else 0
+            
             server_utilizations_list.append(utilization)
         
         if server_utilizations_list and any(u > 0 for u in server_utilizations_list):
@@ -396,16 +426,47 @@ class SimulationMetrics:
         
         # System performance metrics
         total_tasks = len(self.tasks)
-        assigned_tasks = len(completion_times)
+        # Count ASSIGNED tasks from allocation (not just completed tasks)
+        assigned_tasks = sum(len(tasks) for tasks in allocation.values())
+        completed_tasks = len(completion_times)
         assignment_success_rate = assigned_tasks / total_tasks if total_tasks > 0 else 0
+        completion_rate = completed_tasks / total_tasks if total_tasks > 0 else 0
         
-        # Server utilizations
+        # Server utilizations - use actual workload for hybrid/unlimited capacity
         server_utilizations = {}
+        
+        # Check if using hybrid capacity model (from config)
+        use_hybrid_capacity = self.config.use_hybrid_capacity if self.config else False
+        initial_capacity = self.config.initial_server_capacity if self.config else 3
+        
         for server_id in [s['id'] for s in self.servers]:
             capacity = self.server_capacities.get(server_id, 1)
             assigned = len(allocation.get(server_id, []))
-            utilization = assigned / capacity if capacity > 0 else 0
-            server_utilizations[server_id] = utilization * 100
+            
+            # For HYBRID capacity model: Always use time-based utilization
+            # (servers accept unlimited tasks with waiting times after reaching initial capacity)
+            if use_hybrid_capacity or capacity == float('inf'):
+                # Time-based utilization: actual work time / total simulation time
+                if server_id in allocation and allocation[server_id] and total_simulation_time > 0:
+                    # Calculate actual processing time for this server
+                    total_processing_time = 0
+                    for task_id in allocation[server_id]:
+                        task = next((t for t in self.tasks if t['id'] == task_id), None)
+                        if task:
+                            server = next(s for s in self.servers if s['id'] == server_id)
+                            processing_time = task['computation_requirement'] / server['computational_capability']
+                            total_processing_time += processing_time
+                    
+                    # Utilization = actual work time / total simulation time (as percentage)
+                    # Cap at 100% (can't exceed 100% actual utilization in real time)
+                    utilization = min(total_processing_time / total_simulation_time, 1.0) * 100
+                else:
+                    utilization = 0.0
+            else:
+                # Pure limited capacity: traditional calculation
+                utilization = (assigned / capacity * 100) if capacity > 0 else 0
+            
+            server_utilizations[server_id] = utilization
         
         avg_server_utilization = sum(server_utilizations.values()) / len(server_utilizations) if server_utilizations else 0
         
@@ -416,7 +477,6 @@ class SimulationMetrics:
         print(f"  • Total number of tasks (m): {total_tasks}")
         print(f"  • Task instructions range: [10000, 50000] (simulated)")
         print(f"  • Network area: Circular radius 100m")
-        print(f"  • FN CPU types: Core i7(3.6GHz), i5(2.7GHz), i3(2.4GHz), Pentium(1.9GHz), Celeron(2.8GHz)")
         print(f"  • Total simulation time: {total_simulation_time:.4f}s")
         
         print(f"\nKey Performance Indicators (From Simulation):")
@@ -427,15 +487,23 @@ class SimulationMetrics:
         print(f"  • Server utilization fairness: {server_utilization_fairness:.4f} (resource allocation fairness)")
         
         print(f"\nSystem Performance:")
-        print(f"  • Task assignment success rate: {assignment_success_rate:.1%}")
+        print(f"  • Task assignment success rate: {assignment_success_rate:.1%} ({assigned_tasks}/{total_tasks} tasks assigned)")
+        print(f"  • Task completion rate: {completion_rate:.1%} ({completed_tasks}/{total_tasks} tasks completed)")
         print(f"  • Average server utilization: {avg_server_utilization:.1f}%")
-        print(f"  • Number of assigned tasks: {assigned_tasks}/{total_tasks}")
+        print(f"  • Simulation duration: {total_simulation_time:.1f}s")
         
         print(f"\nServer Utilization Details:")
         for server_id, utilization in server_utilizations.items():
             capacity = self.server_capacities.get(server_id, 1)
             assigned = len(allocation.get(server_id, []))
-            print(f"  • {server_id}: {utilization:.1f}% ({assigned}/{capacity} tasks)")
+            
+            # For hybrid capacity, show actual utilization (time-based)
+            if use_hybrid_capacity:
+                print(f"  • {server_id}: {utilization:.1f}% utilization ({assigned} tasks, hybrid capacity model)")
+            elif capacity == float('inf'):
+                print(f"  • {server_id}: {utilization:.1f}% utilization ({assigned} tasks)")
+            else:
+                print(f"  • {server_id}: {utilization:.1f}% ({assigned}/{capacity} tasks)")
         
         # Return structured results
         numerical_results = {
@@ -457,7 +525,8 @@ class SimulationMetrics:
         
         return numerical_results
     
-    def _print_simulation_summary(self, simulation_time: float, server_queues: Dict, simulation_results: Dict):
+    def _print_simulation_summary(self, simulation_time: float, server_queues: Dict, 
+                                  simulation_results: Dict, allocation: Dict[str, List[str]]):
         """
         Print comprehensive simulation summary
         """
@@ -470,11 +539,33 @@ class SimulationMetrics:
         print(f"Tasks completed: {total_tasks_completed}/{len(self.tasks)}")
         
         print("\n🏭 SERVER PERFORMANCE:")
+        
+        # Check if using hybrid capacity model
+        use_hybrid = self.config.use_hybrid_capacity if self.config else False
+        initial_cap = self.config.initial_server_capacity if self.config else 3
+        
         for server_id, queue_info in server_queues.items():
             completed = queue_info['total_processed']
             capacity = self.server_capacities.get(server_id, 1)
-            efficiency = (completed / capacity * 100) if capacity > 0 else 0
-            print(f"  {server_id}: {completed}/{capacity} tasks processed ({efficiency:.1f}% of capacity)")
+            
+            if use_hybrid:
+                # Hybrid capacity: show actual time-based utilization
+                # Calculate processing time for this server
+                total_processing_time = 0
+                for task_id in allocation.get(server_id, []):
+                    task = next((t for t in self.tasks if t['id'] == task_id), None)
+                    if task:
+                        server = next(s for s in self.servers if s['id'] == server_id)
+                        processing_time = task['computation_requirement'] / server['computational_capability']
+                        total_processing_time += processing_time
+                
+                # Utilization = processing time / simulation time (capped at 100%)
+                utilization = min(total_processing_time / simulation_time, 1.0) * 100 if simulation_time > 0 else 0
+                print(f"  {server_id}: {completed} tasks processed ({utilization:.1f}% utilization)")
+            else:
+                # Pure limited capacity: traditional calculation
+                efficiency = (completed / capacity * 100) if capacity > 0 else 0
+                print(f"  {server_id}: {completed}/{capacity} tasks processed ({efficiency:.1f}% of capacity)")
         
         if simulation_results['task_completion_times']:
             completion_times = list(simulation_results['task_completion_times'].values())

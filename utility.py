@@ -202,20 +202,15 @@ class SystemUtilities:
         tasks = []
         task_id = 1
         
-        # Calculate total server capacity
-        total_capacity = len(servers) * config.max_server_capacity
+        # With unlimited capacity model, no hard capacity limit
+        # But we still need reasonable task generation
         
         # Determine number of tasks to generate
         if hasattr(config, 'fixed_task_count') and config.fixed_task_count is not None:
             # Use fixed task count
             num_tasks_to_generate = config.fixed_task_count
             print(f"Generating fixed number of tasks: {num_tasks_to_generate}")
-            
-            # Ensure we don't exceed server capacity
-            if num_tasks_to_generate > total_capacity:
-                print(f"Warning: Fixed task count ({num_tasks_to_generate}) exceeds server capacity ({total_capacity})")
-                print(f"Reducing to server capacity limit: {total_capacity}")
-                num_tasks_to_generate = total_capacity
+            print(f"Note: Servers have UNLIMITED capacity (waiting time increases with load)")
             
             # Distribute tasks evenly among users
             tasks_per_user = num_tasks_to_generate // len(users)
@@ -240,12 +235,15 @@ class SystemUtilities:
                     task_id += 1
                     
         else:
-            # Original logic: distribute based on server capacity
-            tasks_per_user = total_capacity // len(users)  # Base tasks per user
-            remaining_tasks = total_capacity % len(users)   # Extra tasks to distribute
+            # Generate tasks based on number of users (no capacity constraint)
+            default_tasks_per_user = 2  # Default: 2 tasks per user
+            tasks_per_user = default_tasks_per_user
+            remaining_tasks = 0
+            
+            print(f"Generating tasks: {tasks_per_user} per user (unlimited capacity model)")
             
             for i, user in enumerate(users):
-                # Each user gets base number + possibly 1 extra task
+                # Each user gets default number of tasks
                 num_tasks = tasks_per_user + (1 if i < remaining_tasks else 0)
                 
                 for _ in range(num_tasks):
@@ -262,7 +260,7 @@ class SystemUtilities:
                     tasks.append(task)
                     task_id += 1
         
-        print(f"Generated {len(tasks)} tasks for total server capacity of {total_capacity}")
+        print(f"Generated {len(tasks)} tasks (unlimited capacity - waiting time increases with load)")
         return tasks
 
 
@@ -390,21 +388,38 @@ class MatchingUtilities:
             Dictionary of matching statistics
         """
         total_assigned = sum(len(assigned) for assigned in assignments.values())
-        total_capacity = sum(capacities.values())
         
-        utilization = {}
-        for partner, capacity in capacities.items():
-            assigned_count = len(assignments.get(partner, []))
-            utilization[partner] = assigned_count / capacity if capacity > 0 else 0
+        # Handle unlimited capacity (inf) vs limited capacity
+        has_unlimited = any(cap == float('inf') for cap in capacities.values())
         
-        avg_utilization = sum(utilization.values()) / len(utilization) if utilization else 0
+        if has_unlimited:
+            # For unlimited capacity: report task distribution instead of utilization
+            total_capacity = float('inf')
+            utilization = {}
+            for partner, capacity in capacities.items():
+                assigned_count = len(assignments.get(partner, []))
+                # For unlimited capacity, "utilization" is the task count (not a ratio)
+                utilization[partner] = assigned_count
+            
+            # Average utilization = average task count per server
+            avg_utilization = total_assigned / len(capacities) if capacities else 0
+        else:
+            # Limited capacity: traditional calculation
+            total_capacity = sum(capacities.values())
+            utilization = {}
+            for partner, capacity in capacities.items():
+                assigned_count = len(assignments.get(partner, []))
+                utilization[partner] = assigned_count / capacity if capacity > 0 else 0
+            
+            avg_utilization = sum(utilization.values()) / len(utilization) if utilization else 0
         
         return {
             'total_assigned': total_assigned,
             'total_capacity': total_capacity,
             'utilization': utilization,
             'average_utilization': avg_utilization,
-            'capacity_efficiency': total_assigned / total_capacity if total_capacity > 0 else 0
+            'capacity_efficiency': total_assigned / total_capacity if total_capacity > 0 and total_capacity != float('inf') else 0,
+            'unlimited_capacity_mode': has_unlimited
         }
 
 
