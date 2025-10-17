@@ -56,6 +56,39 @@ class SystemConfiguration:
     preference_randomization_prob: float = 0.2  # Probability of preference randomization
     random_seed: Optional[int] = None    # Random seed for reproducibility (None = random each run)
     
+    # Multi-level hierarchy parameters
+    use_multilevel: bool = False         # Enable multi-level fog-cloud architecture
+    num_hierarchy_levels: int = 3        # Number of hierarchy levels (edge → regional → cloud)
+    
+    # Level-specific server configuration
+    edge_fog_servers: int = 4            # Level 1: Edge fog nodes (low latency, limited capacity)
+    regional_fog_servers: int = 2        # Level 2: Regional fog nodes (medium latency, higher capacity)
+    cloud_servers: int = 1               # Level 3: Cloud servers (high latency, unlimited capacity)
+    
+    # Capacity configuration per level
+    edge_fog_capacity: int = 3           # Initial capacity for edge fog servers
+    regional_fog_capacity: int = 10      # Initial capacity for regional fog servers  
+    cloud_capacity: int = 50             # Initial capacity for cloud servers
+    
+    # Processing capabilities per level (Hz)
+    edge_fog_cpu_range: tuple = (1.5e9, 3.0e9)     # 1.5-3.0 GHz for edge fog
+    regional_fog_cpu_range: tuple = (3.0e9, 6.0e9) # 3.0-6.0 GHz for regional fog
+    cloud_cpu_range: tuple = (8.0e9, 16.0e9)       # 8.0-16.0 GHz for cloud
+    
+    # Inter-level communication delays and costs
+    edge_to_regional_delay: float = 0.010   # 10ms delay edge → regional
+    regional_to_cloud_delay: float = 0.050  # 50ms delay regional → cloud
+    iot_to_edge_delay: float = 0.002        # 2ms delay IoT → edge
+    
+    # Level preference weights (favor local processing)
+    edge_preference_weight: float = 1.0     # Highest preference for edge processing
+    regional_preference_weight: float = 0.7 # Medium preference for regional processing
+    cloud_preference_weight: float = 0.4    # Lowest preference for cloud processing
+    
+    # Local processing thresholds
+    local_processing_threshold: float = 2.0  # Max waiting time (seconds) to keep task local
+    migration_benefit_threshold: float = 0.3 # Minimum improvement ratio to justify migration
+    
     # Energy model parameters
     idle_power: float = 0.01             # Idle power consumption (Watts)
     processing_power_factor: float = 1e-9 # Processing power factor (Watts per cycle)

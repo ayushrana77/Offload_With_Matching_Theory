@@ -174,16 +174,97 @@ class SystemUtilities:
             List of server dictionaries
         """
         servers = []
-        for i in range(config.num_servers):
+        
+        if hasattr(config, 'use_multilevel') and config.use_multilevel:
+            # Generate multi-level server hierarchy
+            servers.extend(SystemUtilities.generate_multilevel_servers(config))
+        else:
+            # Generate single-level servers (original behavior)
+            for i in range(config.num_servers):
+                server = {
+                    'id': f'S{i+1}',
+                    'level': 1,
+                    'type': 'fog_server',
+                    'position': generate_random_position(config.network_area_size),
+                    'computational_capability': random.uniform(2.0, 4.0) * 1e9,  # GHz
+                    'available_resources': random.uniform(0.7, 1.0),  # Resource availability
+                    'processing_cost': random.uniform(0.1, 0.3),  # Cost per computation
+                    'energy_efficiency': random.uniform(0.5, 1.0),  # Energy efficiency factor
+                    'initial_capacity': config.initial_server_capacity
+                }
+                servers.append(server)
+        
+        return servers
+    
+    @staticmethod
+    def generate_multilevel_servers(config) -> List[Dict]:
+        """
+        Generate servers for multi-level hierarchy (edge → regional → cloud)
+        
+        Args:
+            config: System configuration object
+            
+        Returns:
+            List of server dictionaries across all hierarchy levels
+        """
+        servers = []
+        
+        # Level 1: Edge Fog Servers (closest to IoT devices)
+        for i in range(config.edge_fog_servers):
             server = {
-                'id': f'S{i+1}',
+                'id': f'E{i+1}',
+                'level': 1,
+                'type': 'edge_fog',
                 'position': generate_random_position(config.network_area_size),
-                'computational_capability': random.uniform(2.0, 4.0) * 1e9,  # GHz
-                'available_resources': random.uniform(0.7, 1.0),  # Resource availability
-                'processing_cost': random.uniform(0.1, 0.3),  # Cost per computation
-                'energy_efficiency': random.uniform(0.5, 1.0)  # Energy efficiency factor
+                'computational_capability': random.uniform(*config.edge_fog_cpu_range),
+                'initial_capacity': config.edge_fog_capacity,
+                'available_resources': random.uniform(0.6, 0.8),
+                'coverage_radius': 50.0,  # Limited coverage area
+                'processing_cost': random.uniform(0.15, 0.25),
+                'energy_efficiency': random.uniform(0.6, 0.8),
+                'communication_delay_base': config.iot_to_edge_delay
             }
             servers.append(server)
+        
+        # Level 2: Regional Fog Servers (intermediate layer)
+        for i in range(config.regional_fog_servers):
+            server = {
+                'id': f'R{i+1}',
+                'level': 2,
+                'type': 'regional_fog',
+                'position': generate_random_position(config.network_area_size),
+                'computational_capability': random.uniform(*config.regional_fog_cpu_range),
+                'initial_capacity': config.regional_fog_capacity,
+                'available_resources': random.uniform(0.8, 0.95),
+                'coverage_radius': 200.0,  # Broader coverage area
+                'processing_cost': random.uniform(0.08, 0.15),
+                'energy_efficiency': random.uniform(0.8, 0.95),
+                'communication_delay_base': config.edge_to_regional_delay
+            }
+            servers.append(server)
+        
+        # Level 3: Cloud Servers (highest layer)
+        for i in range(config.cloud_servers):
+            server = {
+                'id': f'C{i+1}',
+                'level': 3,
+                'type': 'cloud',
+                'position': (config.network_area_size/2, config.network_area_size/2),  # Central position
+                'computational_capability': random.uniform(*config.cloud_cpu_range),
+                'initial_capacity': config.cloud_capacity,
+                'available_resources': random.uniform(0.9, 1.0),
+                'coverage_radius': float('inf'),  # Global coverage
+                'processing_cost': random.uniform(0.02, 0.08),
+                'energy_efficiency': random.uniform(0.9, 1.0),
+                'communication_delay_base': config.regional_to_cloud_delay
+            }
+            servers.append(server)
+        
+        print(f"Generated multi-level server hierarchy:")
+        print(f"  Level 1 (Edge): {config.edge_fog_servers} servers")
+        print(f"  Level 2 (Regional): {config.regional_fog_servers} servers")
+        print(f"  Level 3 (Cloud): {config.cloud_servers} servers")
+        
         return servers
     
     @staticmethod
