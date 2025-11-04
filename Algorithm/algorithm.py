@@ -9,14 +9,21 @@ import random
 import time
 from typing import Dict, List
 
+# Import from root config and other modules
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent.parent))
+
 from config import SystemConfiguration
-from edge_preferences import EdgePreferencesGenerator
-from fog_preferences import FogPreferencesGenerator
-from cloud_preferences import CloudPreferencesGenerator
-from iot_preferences import IoTPreferencesGenerator
-from simulation_metrics import SimulationMetrics
-from utility import (
-    SystemUtilities, MatchingUtilities, set_random_seeds,
+from .edge_preferences import EdgePreferencesGenerator
+from .fog_preferences import FogPreferencesGenerator
+from .cloud_preferences import CloudPreferencesGenerator
+from .iot_preferences import IoTPreferencesGenerator
+from Simulation.simulation_metrics import SimulationMetrics
+
+# Use local algorithm utilities (no external module dependencies)
+from .algorithm_utilities import (
+    AlgorithmUtilities, set_random_seeds,
     print_header, print_section
 )
 
@@ -90,11 +97,11 @@ class ProposedTaskOffloadingAlgorithm:
         
     def _generate_users(self):
         """Generate IoT users with random positions and characteristics"""
-        self.users = SystemUtilities.generate_users(self.config)
+        self.users = AlgorithmUtilities.generate_users(self.config)
     
     def _generate_servers(self):
         """Generate fog servers with random positions and capabilities"""
-        self.servers = SystemUtilities.generate_servers(self.config)
+        self.servers = AlgorithmUtilities.generate_servers(self.config)
         
         # Initialize level-specific server mappings for multi-level support
         if hasattr(self.config, 'use_multilevel') and self.config.use_multilevel:
@@ -114,7 +121,7 @@ class ProposedTaskOffloadingAlgorithm:
     
     def _generate_tasks(self):
         """Generate tasks with different characteristics ensuring total tasks ≤ total server capacity"""
-        self.tasks = SystemUtilities.generate_tasks(self.config, self.users, self.servers)
+        self.tasks = AlgorithmUtilities.generate_tasks(self.config, self.users, self.servers)
     
     def _calculate_system_matrices(self):
         """Calculate distance, channel gains, transmission delays, and costs"""
@@ -131,13 +138,13 @@ class ProposedTaskOffloadingAlgorithm:
         for i, user in enumerate(self.users):
             for j, server in enumerate(self.servers):
                 # Calculate distance using utility function
-                distance = SystemUtilities.calculate_euclidean_distance(
+                distance = AlgorithmUtilities.calculate_euclidean_distance(
                     user['position'], server['position']
                 )
                 self.distance_matrix[i][j] = distance
                 
                 # Calculate channel gain using path loss model
-                channel_gain = SystemUtilities.calculate_path_loss(
+                channel_gain = AlgorithmUtilities.calculate_path_loss(
                     distance, 
                     self.config.reference_distance,
                     self.config.path_loss_exponent, 
@@ -147,11 +154,11 @@ class ProposedTaskOffloadingAlgorithm:
                 
                 # Calculate transmission delay using Shannon capacity
                 snr = (self.config.transmission_power * channel_gain) / self.config.noise_power
-                capacity = SystemUtilities.calculate_shannon_capacity(self.config.channel_bandwidth, snr)
+                capacity = AlgorithmUtilities.calculate_shannon_capacity(self.config.channel_bandwidth, snr)
                 
                 # Average task size for delay calculation
                 avg_task_size = 1e6  # 1 MB average
-                base_transmission_delay = SystemUtilities.calculate_transmission_delay(avg_task_size, capacity)
+                base_transmission_delay = AlgorithmUtilities.calculate_transmission_delay(avg_task_size, capacity)
                 
                 # Add multi-level communication delays if enabled
                 if hasattr(self.config, 'use_multilevel') and self.config.use_multilevel:
@@ -392,7 +399,7 @@ class ProposedTaskOffloadingAlgorithm:
         # Initialize algorithm state using utility function
         task_ids = [task['id'] for task in self.tasks]
         server_ids = [server['id'] for server in self.servers]
-        server_assignments, task_current_preference = MatchingUtilities.initialize_matching_state(
+        server_assignments, task_current_preference = AlgorithmUtilities.initialize_matching_state(
             task_ids, server_ids
         )
         unassigned_tasks = set(task_ids)
@@ -944,7 +951,7 @@ class ProposedTaskOffloadingAlgorithm:
         print(f"  I_J (Jain's fairness index): {numerical_results['jains_index_IJ']:.4f}")
         
         execution_time = time.time() - start_time
-        from utility import format_time_duration
+        from .algorithm_utilities import format_time_duration
         print(f"\nTotal Execution Time: {format_time_duration(execution_time)}")
         
         return {
@@ -963,7 +970,7 @@ def main():
         num_servers=5,                     # This will be overridden by multi-level settings
         num_task_types=10,                 # 10 task types for variety
         network_area_size=500.0,           # Large coverage area
-        fixed_task_count=3000,              # Generate exactly 100 tasks
+        fixed_task_count=1000,              # Generate exactly 100 tasks
         random_seed=None,                  # None = different results each run
         
         # Enable multi-level mode

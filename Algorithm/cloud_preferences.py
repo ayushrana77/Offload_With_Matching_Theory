@@ -48,7 +48,7 @@ class CloudPreferencesGenerator:
         Returns:
             Dictionary mapping server_id to ranked list of task_ids (highest utility first)
         """
-        from utility import PreferenceUtilities
+        from .algorithm_utilities import AlgorithmUtilities
 
         print("\n=== Generating Cloud Server Preferences (Paper Formula 5 + Cost Factor) ===")
         print("Formula: D_i(j) = 1/(omega_j^i(zeta) + xi_j^i + t_j,i + c_i)")
@@ -111,7 +111,7 @@ class CloudPreferencesGenerator:
 
             # Sort tasks by utility score (highest first - servers prefer better utility tasks)
             task_items = [(tid, score) for tid, score in task_scores.items()]
-            sorted_tasks = PreferenceUtilities.sort_by_preference(
+            sorted_tasks = AlgorithmUtilities.sort_by_preference(
                 task_items, lambda x: x[1], reverse=True
             )
             server_preferences[server['id']] = [task_id for task_id, _ in sorted_tasks]

@@ -44,7 +44,7 @@ class IoTPreferencesGenerator:
         Returns:
             Dictionary mapping user_id to ranked list of server_ids (highest utility first)
         """
-        from utility import PreferenceUtilities
+        from .algorithm_utilities import AlgorithmUtilities
         
         print("\n=== Generating User Preferences (Paper Formula 4) ===")
         print("Formula: O_j(i) = 1/(omega_j^i(zeta) + xi_j^i)")
@@ -91,7 +91,7 @@ class IoTPreferencesGenerator:
             
             # Sort servers by utility score (highest first - users prefer better utility servers)
             server_items = [(sid, score) for sid, score in server_scores.items()]
-            sorted_servers = PreferenceUtilities.sort_by_preference(
+            sorted_servers = AlgorithmUtilities.sort_by_preference(
                 server_items, lambda x: x[1], reverse=True
             )
             user_preferences[user['id']] = [server_id for server_id, _ in sorted_servers]

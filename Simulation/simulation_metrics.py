@@ -13,7 +13,9 @@ import time
 import random
 import numpy as np
 from typing import Dict, List
-from utility import MatchingUtilities, MetricsUtilities, print_section
+
+# Import from simulation utilities (no external module dependencies)
+from .simulation_utilities import SimulationUtilities, print_section
 
 
 class SimulationMetrics:
@@ -140,7 +142,15 @@ class SimulationMetrics:
         
         for server_id, task_list in allocation.items():
             if task_list:
-                server_info = next(s for s in self.servers if s['id'] == server_id)
+                # Find server info - with better error handling
+                try:
+                    server_info = next(s for s in self.servers if s['id'] == server_id)
+                except StopIteration:
+                    print(f"❌ ERROR: Server '{server_id}' not found in servers list!")
+                    print(f"Available servers: {[s['id'] for s in self.servers]}")
+                    print(f"Allocation keys: {list(allocation.keys())}")
+                    raise ValueError(f"Server '{server_id}' from allocation not found in servers list")
+                
                 server_queues[server_id] = {
                     'tasks': task_list.copy(),
                     'server_info': server_info,
