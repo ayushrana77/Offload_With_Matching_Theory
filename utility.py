@@ -293,13 +293,31 @@ class SystemUtilities:
             print(f"Generating fixed number of tasks: {num_tasks_to_generate}")
             print(f"Note: Servers have UNLIMITED capacity (waiting time increases with load)")
             
-            # Distribute tasks evenly among users
-            tasks_per_user = num_tasks_to_generate // len(users)
-            remaining_tasks = num_tasks_to_generate % len(users)
+            # Distribute tasks with variation among users (more realistic distribution)
+            base_tasks_per_user = num_tasks_to_generate // len(users)
+            
+            # Generate random task counts for each user with variation (±50% of base)
+            min_tasks = max(1, int(base_tasks_per_user * 0.5))  # Minimum 50% of base (at least 1)
+            max_tasks = int(base_tasks_per_user * 1.5)          # Maximum 150% of base
+            
+            user_task_counts = []
+            total_assigned = 0
             
             for i, user in enumerate(users):
-                # Each user gets base number + possibly 1 extra task
-                user_task_count = tasks_per_user + (1 if i < remaining_tasks else 0)
+                if i < len(users) - 1:
+                    # Random task count for each user (except last)
+                    user_task_count = random.randint(min_tasks, max_tasks)
+                    user_task_counts.append(user_task_count)
+                    total_assigned += user_task_count
+                else:
+                    # Last user gets remaining tasks to match total
+                    remaining = num_tasks_to_generate - total_assigned
+                    user_task_counts.append(max(1, remaining))  # At least 1 task
+            
+            print(f"Distributed tasks: min={min(user_task_counts)}, max={max(user_task_counts)}, avg={sum(user_task_counts)/len(user_task_counts):.1f} tasks/user")
+            
+            for i, user in enumerate(users):
+                user_task_count = user_task_counts[i]
                 
                 for _ in range(user_task_count):
                     task = {
