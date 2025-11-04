@@ -335,7 +335,9 @@ class SimulationMetrics:
         for server_id, task_list in allocation.items():
             if task_list:
                 server = next(s for s in self.servers if s['id'] == server_id)
-                server_energy = len(task_list) * server['energy_efficiency'] * 0.1
+                # Use default energy efficiency if not present
+                energy_efficiency = server.get('energy_efficiency', 0.75)
+                server_energy = len(task_list) * energy_efficiency * 0.1
                 total_energy += server_energy
         
         for task_id, completion_time in simulation_results['task_completion_times'].items():

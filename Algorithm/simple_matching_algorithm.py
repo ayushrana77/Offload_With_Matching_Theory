@@ -1,7 +1,8 @@
-﻿"""
-Proposed Algorithm Implementation
-Matching Theory Framework for Task Offloading in Fog Computing for IoT Systems
-Based on the research paper's proposed algorithm
+"""
+Simple Matching Theory Algorithm Implementation
+Matching Theory Framework for Task Offloading in Fog Computing
+WITHOUT Hierarchical/Multi-level Structure - Single-Level Fog Nodes Only
+NO Local Processing - All tasks are offloaded to servers
 """
 
 import numpy as np
@@ -228,57 +229,8 @@ class ProposedTaskOffloadingAlgorithm:
         else:
             print(f"✅ Initialized servers with UNLIMITED capacity model")
     
-    def should_process_locally(self, task_id: str, user_id: str) -> bool:
-        """
-        Determine if a task should be processed locally instead of offloaded
-        Based on local processing threshold compared to minimum expected waiting time
-        
-        Args:
-            task_id: ID of the task to evaluate
-            user_id: ID of the user who owns the task
-            
-        Returns:
-            True if task should process locally, False if should offload
-        """
-        if not (hasattr(self.config, 'use_multilevel') and self.config.use_multilevel):
-            return False  # No local processing in single-level mode
-        
-        # Get task information
-        task_info = next(t for t in self.tasks if t['id'] == task_id)
-        
-        # Calculate local processing time (simplified model)
-        # Assume user device has limited CPU capability
-        local_cpu_capability = getattr(self.config, 'local_device_cpu', 1.0e9)  # 1 GHz default
-        local_processing_time = task_info['computation_requirement'] / local_cpu_capability
-        
-        # Find minimum waiting time among all available servers
-        min_server_waiting_time = float('inf')
-        user_prefs = self.user_preferences.get(user_id, [])
-        
-        for server_id in user_prefs[:3]:  # Check top 3 preferred servers
-            if server_id in self.server_waiting_times:
-                # Add transmission delay for fairness
-                user_idx = next(i for i, u in enumerate(self.users) if u['id'] == user_id)
-                server_idx = next(i for i, s in enumerate(self.servers) if s['id'] == server_id)
-                transmission_delay = self.transmission_delays[user_idx][server_idx]
-                
-                total_offload_time = self.server_waiting_times[server_id] + transmission_delay
-                min_server_waiting_time = min(min_server_waiting_time, total_offload_time)
-        
-        # Decision rule: process locally if local time is better than threshold
-        local_threshold = getattr(self.config, 'local_processing_threshold', 2.0)  # seconds
-        
-        # Process locally if:
-        # 1. Local processing time < threshold AND
-        # 2. Local processing time < minimum offload time
-        should_local = (local_processing_time < local_threshold and 
-                       local_processing_time < min_server_waiting_time)
-        
-        if should_local:
-            print(f"    📱 Task {task_id}: Local processing ({local_processing_time:.3f}s) " +
-                  f"vs offload ({min_server_waiting_time:.3f}s) → LOCAL")
-        
-        return should_local
+    # NOTE: No should_process_locally() method in simple algorithm
+    # This is a SINGLE-LEVEL algorithm with NO local processing or hierarchy
     
     def create_preference_matrices_using_formulas(self):
         """
@@ -404,32 +356,17 @@ class ProposedTaskOffloadingAlgorithm:
         )
         unassigned_tasks = set(task_ids)
         
-        # Track locally processed tasks (new for multi-level)
-        locally_processed_tasks = set()
-        
         # Use pre-calculated preferences (matrices already created)
         user_prefs = self.user_preferences
         server_prefs = self.server_preferences
         
         print("\n" + "="*80)
-        print("🔄 RUNNING STABLE MATCHING ALGORITHM WITH MULTI-LEVEL SUPPORT")
+        print("🔄 RUNNING STABLE MATCHING ALGORITHM (SINGLE-LEVEL, NO HIERARCHY)")
         print("="*80)
+        print("All tasks will be offloaded to servers (no local processing)")
         
         # Map tasks to users for preference lookup
         task_to_user = {task['id']: task['user_id'] for task in self.tasks}
-        
-        # Multi-level local processing check
-        if hasattr(self.config, 'use_multilevel') and self.config.use_multilevel:
-            print("\n📱 CHECKING LOCAL PROCESSING PREFERENCE...")
-            for task_id in list(unassigned_tasks):
-                user_id = task_to_user[task_id]
-                if self.should_process_locally(task_id, user_id):
-                    unassigned_tasks.remove(task_id)
-                    locally_processed_tasks.add(task_id)
-            
-            if locally_processed_tasks:
-                print(f"✅ {len(locally_processed_tasks)} tasks chose local processing")
-                print(f"📤 {len(unassigned_tasks)} tasks will participate in offloading")
         
         round_num = 1
         max_rounds = 10000  # Much higher limit for complex scenarios
@@ -441,7 +378,7 @@ class ProposedTaskOffloadingAlgorithm:
         max_no_progress = max(20, min(100, estimated_rounds_needed))  # At least 20, up to 100 rounds
         
         print(f"\nStarting matching process with {len(unassigned_tasks)} tasks...")
-        print(f"System scale: {len(self.tasks)} total tasks ({len(locally_processed_tasks)} local, {len(unassigned_tasks)} offloading)")
+        print(f"System scale: {len(self.tasks)} total tasks (all offloading to servers, no local processing)")
         print(f"Per-round limit: {tasks_per_server_per_round} tasks/server")
         print(f"Estimated rounds needed: ~{estimated_rounds_needed}")
         print(f"Max no-progress rounds: {max_no_progress}")
@@ -706,63 +643,65 @@ class ProposedTaskOffloadingAlgorithm:
         print(f"  Algorithm completed after {round_num-1} rounds")
         print(f"  Termination reason: {termination_reason}")
         
-        # Calculate total assignments including local processing
+        # Calculate total assignments (NO local processing in simple algorithm)
         total_server_assigned = sum(len(tasks) for tasks in server_assignments.values())
-        total_local_assigned = len(locally_processed_tasks) if 'locally_processed_tasks' in locals() else 0
-        total_assigned = total_server_assigned + total_local_assigned
+        total_assigned = total_server_assigned
         
         print(f"  Total assigned tasks: {total_assigned}/{len(self.tasks)} ({(total_assigned/len(self.tasks)*100):.1f}%)")
-        print(f"    - Server assigned: {total_server_assigned}")
-        if total_local_assigned > 0:
-            print(f"    - Local processing: {total_local_assigned}")
+        print(f"    - All tasks offloaded to servers (no local processing)")
         print(f"  Unassigned tasks: {len(actually_unassigned)}")
         if actually_unassigned:
             print(f"  Unassigned task IDs: {sorted(actually_unassigned)}")
         
         # Show final allocation summary
-        allocation_mode = "MULTI-LEVEL" if (hasattr(self.config, 'use_multilevel') and self.config.use_multilevel) else "SINGLE-LEVEL"
+        allocation_mode = "SINGLE-LEVEL (NO HIERARCHY)"
         capacity_mode = "HYBRID CAPACITY" if self.config.use_hybrid_capacity else "UNLIMITED CAPACITY"
         print(f"\n🏆 FINAL TASK ALLOCATION ({allocation_mode} {capacity_mode} MODEL):")
         
-        # Show local processing results first (if any)
-        if 'locally_processed_tasks' in locals() and locally_processed_tasks:
-            print(f"  📱 LOCAL PROCESSING: {len(locally_processed_tasks)} tasks")
-            print(f"    Tasks: {sorted(list(locally_processed_tasks))[:10]}{'...' if len(locally_processed_tasks) > 10 else ''}")
+        # NO local processing - show server assignments only
+        # Simple algorithm: all servers at same level, display by type
+        edge_servers = [s for s in self.servers if s['type'] == 'edge']
+        fog_servers = [s for s in self.servers if s['type'] == 'fog']
+        cloud_servers = [s for s in self.servers if s['type'] == 'cloud']
         
-        # Show server assignments by level
-        if hasattr(self.config, 'use_multilevel') and self.config.use_multilevel and hasattr(self, 'servers_by_level'):
-            for level in sorted(self.servers_by_level.keys()):
-                level_servers = self.servers_by_level[level]
-                if level_servers:
-                    level_name = {1: "EDGE", 2: "REGIONAL", 3: "CLOUD"}[level]
-                    print(f"  🏗️  LEVEL {level} ({level_name}) SERVERS:")
-                    
-                    for server in level_servers:
-                        server_id = server['id']
-                        assigned_tasks = server_assignments.get(server_id, [])
-                        num_tasks = len(assigned_tasks)
-                        waiting_time = self.server_waiting_times.get(server_id, 0.0)
-                        
-                        if assigned_tasks:
-                            print(f"    {server_id}: {num_tasks} tasks (waiting time: {waiting_time:.3f}s)")
-                            print(f"      Tasks: {assigned_tasks[:8]}{'...' if len(assigned_tasks) > 8 else ''}")
-                        else:
-                            print(f"    {server_id}: No tasks assigned")
-        else:
-            # Single-level display
-            for server_id, assigned_tasks in server_assignments.items():
+        # Display by server type (all at same level)
+        if edge_servers:
+            print(f"\n  🏢 EDGE SERVERS:")
+            for server in edge_servers:
+                server_id = server['id']
+                assigned_tasks = server_assignments.get(server_id, [])
                 num_tasks = len(assigned_tasks)
                 waiting_time = self.server_waiting_times.get(server_id, 0.0)
                 if assigned_tasks:
-                    print(f"  {server_id}: {num_tasks} tasks (waiting time: {waiting_time:.3f}s)")
-                    print(f"    Tasks: {assigned_tasks[:10]}{'...' if len(assigned_tasks) > 10 else ''}")
+                    print(f"    {server_id}: {num_tasks} tasks (waiting time: {waiting_time:.3f}s)")
                 else:
-                    print(f"  {server_id}: No tasks assigned")
+                    print(f"    {server_id}: No tasks assigned")
         
-        # Store local processing info in final allocation for metrics calculation
-        if 'locally_processed_tasks' in locals() and locally_processed_tasks:
-            server_assignments['LOCAL_PROCESSING'] = list(locally_processed_tasks)
+        if fog_servers:
+            print(f"\n  🌐 FOG SERVERS:")
+            for server in fog_servers:
+                server_id = server['id']
+                assigned_tasks = server_assignments.get(server_id, [])
+                num_tasks = len(assigned_tasks)
+                waiting_time = self.server_waiting_times.get(server_id, 0.0)
+                if assigned_tasks:
+                    print(f"    {server_id}: {num_tasks} tasks (waiting time: {waiting_time:.3f}s)")
+                else:
+                    print(f"    {server_id}: No tasks assigned")
         
+        if cloud_servers:
+            print(f"\n  ☁️ CLOUD SERVERS:")
+            for server in cloud_servers:
+                server_id = server['id']
+                assigned_tasks = server_assignments.get(server_id, [])
+                num_tasks = len(assigned_tasks)
+                waiting_time = self.server_waiting_times.get(server_id, 0.0)
+                if assigned_tasks:
+                    print(f"    {server_id}: {num_tasks} tasks (waiting time: {waiting_time:.3f}s)")
+                else:
+                    print(f"    {server_id}: No tasks assigned")
+        
+        # NO local processing in simple algorithm - all tasks go to servers
         self.final_allocation = server_assignments
         return server_assignments
     
@@ -973,9 +912,8 @@ def main():
         fixed_task_count=100,              # Generate exactly 100 tasks
         random_seed=None,                  # None = different results each run
         
-        # Enable multi-level mode
-        use_multilevel=True,               # Enable multi-level hierarchy
-        local_processing_threshold=2.0     # Tasks with local time < 2s prefer local processing
+        # This is a SINGLE-LEVEL algorithm (no hierarchy, no local processing)
+        use_multilevel=False               # Disable multi-level hierarchy
     )
     
     # Set random seed based on config (None = truly random)
@@ -990,14 +928,13 @@ def main():
     
     set_random_seeds(random_seed)
     
-    # Create and run the proposed algorithm
+    # Create and run the simple matching algorithm
     proposed_algorithm = ProposedTaskOffloadingAlgorithm(config)
     
-    # Debug: Show multi-level server hierarchy to verify setup
-    print(f"\n=== Multi-Level Architecture Overview ===")
+    # Debug: Show single-level architecture to verify setup
+    print(f"\n=== Single-Level Architecture Overview ===")
     print(f"Configuration:")
-    print(f"  Multi-level enabled: {getattr(config, 'use_multilevel', False)}")
-    print(f"  Local processing threshold: {getattr(config, 'local_processing_threshold', 'N/A')}s")
+    print(f"  Algorithm type: SINGLE-LEVEL (No hierarchy, no local processing)")
     print(f"  Edge fog servers: {getattr(config, 'edge_fog_servers', 0)}")
     print(f"  Regional fog servers: {getattr(config, 'regional_fog_servers', 0)}")
     print(f"  Cloud servers: {getattr(config, 'cloud_servers', 0)}")
@@ -1005,35 +942,31 @@ def main():
     
     results = proposed_algorithm.run_complete_algorithm()
     
-    # Show multi-level specific results
-    if hasattr(config, 'use_multilevel') and config.use_multilevel:
-        print(f"\n=== Multi-Level Results Summary ===")
-        allocation = results['allocation']
-        
-        # Count tasks by processing location
-        local_tasks = len(allocation.get('LOCAL_PROCESSING', []))
-        edge_tasks = sum(len(tasks) for server_id, tasks in allocation.items() 
-                        if server_id.startswith('E') and server_id != 'LOCAL_PROCESSING')
-        regional_tasks = sum(len(tasks) for server_id, tasks in allocation.items() 
-                           if server_id.startswith('R'))
-        cloud_tasks = sum(len(tasks) for server_id, tasks in allocation.items() 
-                         if server_id.startswith('C'))
-        
-        total_tasks = local_tasks + edge_tasks + regional_tasks + cloud_tasks
-        
-        print(f"Task distribution across hierarchy:")
-        if local_tasks > 0:
-            print(f"  📱 Local processing: {local_tasks}/{total_tasks} tasks ({(local_tasks/total_tasks)*100:.1f}%)")
-        print(f"  🏢 Edge fog servers: {edge_tasks}/{total_tasks} tasks ({(edge_tasks/total_tasks)*100:.1f}%)")
-        print(f"  🏗️  Regional fog servers: {regional_tasks}/{total_tasks} tasks ({(regional_tasks/total_tasks)*100:.1f}%)")
-        print(f"  ☁️  Cloud servers: {cloud_tasks}/{total_tasks} tasks ({(cloud_tasks/total_tasks)*100:.1f}%)")
+    # Note: This is a SINGLE-LEVEL algorithm with NO hierarchy or local processing
+    # All tasks are matched to servers at the same level (no edge/fog/cloud hierarchy)
+    print(f"\n=== Single-Level Results Summary ===")
+    allocation = results['allocation']
+    
+    # Count tasks by server type (but all at same level)
+    edge_tasks = sum(len(tasks) for server_id, tasks in allocation.items() 
+                    if server_id.startswith('E'))
+    fog_tasks = sum(len(tasks) for server_id, tasks in allocation.items() 
+                       if server_id.startswith('R') or server_id.startswith('F'))
+    cloud_tasks = sum(len(tasks) for server_id, tasks in allocation.items() 
+                     if server_id.startswith('C'))
+    
+    total_tasks = edge_tasks + fog_tasks + cloud_tasks
+    
+    if total_tasks > 0:
+        print(f"Task distribution (all at same level, no hierarchy):")
+        if edge_tasks > 0:
+            print(f"  🏢 Edge servers: {edge_tasks}/{total_tasks} tasks ({(edge_tasks/total_tasks)*100:.1f}%)")
+        if fog_tasks > 0:
+            print(f"  🏗️  Fog servers: {fog_tasks}/{total_tasks} tasks ({(fog_tasks/total_tasks)*100:.1f}%)")
+        if cloud_tasks > 0:
+            print(f"  ☁️  Cloud servers: {cloud_tasks}/{total_tasks} tasks ({(cloud_tasks/total_tasks)*100:.1f}%)")
         print(f"  Total assigned: {total_tasks}")
-        
-        # Show decision efficiency
-        if local_tasks > 0:
-            print(f"\n✅ Smart local processing: {local_tasks} tasks avoided network offloading")
-            print(f"✅ Hierarchical offloading: {edge_tasks + regional_tasks + cloud_tasks} tasks used fog-cloud infrastructure")
-        print(f"={'='*50}")
+    print(f"={'='*50}")
 
 
 if __name__ == "__main__":
