@@ -909,7 +909,7 @@ def main():
         num_servers=5,                     # This will be overridden by multi-level settings
         num_task_types=10,                 # 10 task types for variety
         network_area_size=500.0,           # Large coverage area
-        fixed_task_count=100,              # Generate exactly 100 tasks
+        fixed_task_count=1000,              # Generate exactly 100 tasks
         random_seed=None,                  # None = different results each run
         
         # This is a SINGLE-LEVEL algorithm (no hierarchy, no local processing)
