@@ -1,8 +1,16 @@
-﻿"""
+﻿# -*- coding: utf-8 -*-
+"""
 Proposed Algorithm Implementation
 Matching Theory Framework for Task Offloading in Fog Computing for IoT Systems
 Based on the research paper's proposed algorithm
 """
+
+import sys
+import os
+# Set UTF-8 encoding for Windows console
+if sys.platform == 'win32':
+    os.system('chcp 65001 > nul 2>&1')
+    sys.stdout.reconfigure(encoding='utf-8') if hasattr(sys.stdout, 'reconfigure') else None
 
 import numpy as np
 import random
@@ -448,6 +456,10 @@ class ProposedTaskOffloadingAlgorithm:
         
         while unassigned_tasks and round_num <= max_rounds and consecutive_no_progress < max_no_progress:
             print(f"\nRound {round_num}:")
+            
+            # Pseudocode Line 17: Update IoT (user) preferences at start of each iteration
+            # This ensures preferences reflect the most current waiting times
+            user_prefs = self.generate_user_preferences()
             
             # Track progress in this round
             tasks_assigned_this_round = 0
@@ -970,7 +982,7 @@ def main():
         num_servers=5,                     # This will be overridden by multi-level settings
         num_task_types=10,                 # 10 task types for variety
         network_area_size=500.0,           # Large coverage area
-        fixed_task_count=100,              # Generate exactly 100 tasks
+        fixed_task_count=1000,              # Generate exactly 100 tasks
         random_seed=None,                  # None = different results each run
         
         # Enable multi-level mode

@@ -1,40 +1,47 @@
 """
-Fog Device Preferences Generator
-Generates preference lists for fog devices using Research Paper Theoretical Formula:
+Simple Server Preferences Generator (WITHOUT Energy)
+Generates preference lists for ALL servers using Simplified Formula WITHOUT Energy:
 D_i(j) = 1/(ω_j^i(ζ) + ξ_j^i + t_j,i)
 
+This is for SINGLE-LEVEL (FLAT) architecture - all servers use the same formula.
+
 Based on Formula 5 from the research paper where:
-- ω_j^i(ζ): Expected waiting time for task j at fog node i
-- ξ_j^i: Communication delay from task j to fog node i  
-- t_j,i: Computation time for task j at fog node i
+- ω_j^i(ζ): Expected waiting time for task j at server i
+- ξ_j^i: Communication delay from task j to server i  
+- t_j,i: Computation time for task j at server i
+
+IMPORTANT: This version does NOT use energy_efficiency in calculations
 """
 
 import random
 from typing import Dict, List
 
 
-class FogPreferencesGenerator:
+class SimpleServerPreferencesGenerator:
     def __init__(self):
-        """Initialize the fog preferences generator"""
-        self.fog_devices = []
-        self.iot_devices = []
-        self.fog_quotas = {}
+        """Initialize the simple server preferences generator"""
+        self.servers = []
+        self.users = []
+        self.server_quotas = {}
     
-    def set_devices(self, fog_devices: List[str], iot_devices: List[str], fog_quotas: Dict[str, int]):
-        """Set the list of fog devices, IoT devices, and quotas"""
-        self.fog_devices = fog_devices
-        self.iot_devices = iot_devices
-        self.fog_quotas = fog_quotas
+    def set_devices(self, servers: List[str], users: List[str], server_quotas: Dict[str, int]):
+        """Set the list of servers, users, and quotas"""
+        self.servers = servers
+        self.users = users
+        self.server_quotas = server_quotas
     
     def generate_theoretical_server_preferences(self, servers: List[Dict], tasks: List[Dict], users: List[Dict],
                                               transmission_delays: any, server_waiting_times: Dict[str, float],
                                               server_capacities: Dict[str, int]) -> Dict[str, List[str]]:
         """
-        Generate server preferences using PAPER THEORETICAL FORMULA:
+        Generate server preferences using SIMPLIFIED FORMULA WITHOUT ENERGY:
         D_i(j) = 1/(ω_j^i(ζ) + ξ_j^i + t_j,i)
         
-        This is Formula 5 from the research paper. Servers prefer tasks with lower overall 
-        workload considering waiting time, communication delay, and computation time.
+        This is Formula 5 from the research paper WITHOUT energy considerations.
+        ALL servers (edge/fog/cloud) use the SAME formula since this is a FLAT architecture.
+        
+        Servers prefer tasks with lower overall workload considering waiting time, 
+        communication delay, and computation time only.
         
         Args:
             servers: List of server dictionaries with computational capabilities
@@ -49,12 +56,14 @@ class FogPreferencesGenerator:
         """
         from .algorithm_utilities import AlgorithmUtilities
         
-        print("\n=== Generating Server Preferences (Paper Formula 5) ===")
+        print("\n=== Generating Server Preferences (Simplified Formula WITHOUT Energy) ===")
         print("Formula: D_i(j) = 1/(omega_j^i(zeta) + xi_j^i + t_j,i)")
         print("Where:")
         print("  omega_j^i(zeta) = Expected waiting time for task j at server i")
         print("  xi_j^i = Communication delay from task j to server i")
         print("  t_j,i = Computation time for task j at server i")
+        print("  NOTE: Energy efficiency is NOT used in this calculation")
+        print("  NOTE: ALL servers use the SAME formula (flat architecture)")
         
         server_preferences = {}
         
@@ -83,23 +92,9 @@ class FogPreferencesGenerator:
                 # Formula Component 3: t_j,i (Computation time for task j at server i)
                 t_ji = task['computation_requirement'] / server['computational_capability']
                 
-                # Formula Component 4: Task Priority Factor (p_j)
-                # Higher priority tasks get preference (lower denominator = higher utility)
-                # Priority range: 1-5, we invert so high priority (5) reduces denominator
-                task_priority = task.get('priority', 3)  # Default to medium priority
-                max_priority = 5
-                # Priority factor: 0.0 (high priority=5) to 0.4 (low priority=1)
-                priority_penalty = (max_priority - task_priority) / max_priority * 0.4
-                
-                # Formula Component 5: Data Size Factor (s_j)
-                # Larger tasks may need special handling based on server type
-                data_size = task.get('data_size', 0)  # in MB or KB
-                # Normalize data size factor (0 to 0.2 range)
-                size_factor = min(0.2, data_size / 10000.0)  # Normalize by 10MB
-                
-                # Apply Paper Theoretical Formula with Task Characteristics: 
-                # D_i(j) = 1/(ω_j^i(ζ) + ξ_j^i + t_j,i + p_j + s_j)
-                denominator = omega_ji_zeta + xi_ji + t_ji + priority_penalty + size_factor + 1e-6
+                # Apply Simplified Formula WITHOUT Energy: D_i(j) = 1/(ω_j^i(ζ) + ξ_j^i + t_j,i)
+                # SAME formula for ALL servers (no edge/fog/cloud distinction)
+                denominator = omega_ji_zeta + xi_ji + t_ji + 1e-6  # Small epsilon to avoid division by zero
                 utility_score = 1.0 / denominator
                 
                 task_scores[task['id']] = utility_score
@@ -119,8 +114,10 @@ class FogPreferencesGenerator:
 
 
 if __name__ == "__main__":
-    """Example usage of the theoretical fog preferences generator"""
-    print("=== Fog Preferences Generator (Research Paper Formula) ===")
+    """Example usage of the simple server preferences generator"""
+    print("=== Simple Server Preferences Generator (WITHOUT Energy) ===")
     print("This generator uses Formula 5: D_i(j) = 1/(ω_j^i(ζ) + ξ_j^i + t_j,i)")
+    print("Energy efficiency is NOT considered in preference calculations")
+    print("ALL servers (edge/fog/cloud) use the SAME formula (flat architecture)")
     print("For actual usage, call generate_theoretical_server_preferences() method")
     print("with appropriate server, task, user, and system data.")

@@ -3,6 +3,15 @@ Simple Matching Theory Algorithm Implementation
 Matching Theory Framework for Task Offloading in Fog Computing
 WITHOUT Hierarchical/Multi-level Structure - Single-Level Fog Nodes Only
 NO Local Processing - All tasks are offloaded to servers
+WITHOUT Energy Efficiency - Uses simplified preference formulas that don't consider energy
+
+IMPORTANT DIFFERENCES FROM algorithm.py:
+1. Single-level architecture (no edge/fog/cloud hierarchy)
+2. No local processing capability
+3. Energy efficiency NOT used in preference calculations
+4. Uses simple_*_preferences.py files instead of original preference files
+
+For the full hierarchical algorithm WITH energy efficiency, use algorithm.py
 """
 
 import numpy as np
@@ -16,10 +25,9 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
 
 from config import SystemConfiguration
-from .edge_preferences import EdgePreferencesGenerator
-from .fog_preferences import FogPreferencesGenerator
-from .cloud_preferences import CloudPreferencesGenerator
-from .iot_preferences import IoTPreferencesGenerator
+# Import SIMPLE preference generators WITHOUT energy (FLAT architecture - only 1 server preference file)
+from .simple_server_preferences import SimpleServerPreferencesGenerator
+from .simple_iot_preferences import SimpleIoTPreferencesGenerator
 from Simulation.simulation_metrics import SimulationMetrics
 
 # Use local algorithm utilities (no external module dependencies)
@@ -58,11 +66,9 @@ class ProposedTaskOffloadingAlgorithm:
         self.server_preferences = {}      # Server preference lists
         self.final_allocation = {}        # Final task allocation
         
-        # Preference generators
-        self.edge_pref_generator = EdgePreferencesGenerator()
-        self.fog_pref_generator = FogPreferencesGenerator()
-        self.cloud_pref_generator = CloudPreferencesGenerator()
-        self.iot_pref_generator = IoTPreferencesGenerator()
+        # Preference generators (SIMPLE versions WITHOUT energy - FLAT architecture)
+        self.server_pref_generator = SimpleServerPreferencesGenerator()  # ONE generator for ALL servers
+        self.iot_pref_generator = SimpleIoTPreferencesGenerator()
         
         # Unified simulation and metrics calculator
         self.unified_calculator = None  # Will be initialized when needed
@@ -293,49 +299,16 @@ class ProposedTaskOffloadingAlgorithm:
     
     def generate_server_preferences(self) -> Dict[str, List[str]]:
         """
-        Generate server preferences using appropriate theoretical formulas based on server level:
-        - Edge servers (Level 1): D_i(j) = 1/(ω_j^i(ζ) + ξ_j^i + t_j,i + λ_i) [with proximity bonus]
-        - Regional servers (Level 2): D_i(j) = 1/(ω_j^i(ζ) + ξ_j^i + t_j,i) [standard formula]
-        - Cloud servers (Level 3): D_i(j) = 1/(ω_j^i(ζ) + ξ_j^i + t_j,i + c_i) [with cost factor]
+        Generate server preferences using simplified formula WITHOUT energy:
+        D_i(j) = 1/(ω_j^i(ζ) + ξ_j^i + t_j,i) [standard formula]
+        
+        FLAT ARCHITECTURE: ALL servers use the SAME formula (no hierarchy)
         """
-        server_preferences = {}
-
-        # Separate servers by level for multi-level preference generation
-        if hasattr(self.config, 'use_multilevel') and self.config.use_multilevel:
-            edge_servers = [s for s in self.servers if s.get('level') == 1]
-            regional_servers = [s for s in self.servers if s.get('level') == 2]
-            cloud_servers = [s for s in self.servers if s.get('level') == 3]
-
-            # Generate preferences for each level using appropriate generator
-            if edge_servers:
-                print("\n--- Generating Edge Server Preferences (Level 1) ---")
-                edge_prefs = self.edge_pref_generator.generate_theoretical_edge_preferences(
-                    edge_servers, self.tasks, self.users, self.transmission_delays,
-                    self.server_waiting_times, self.server_capacities
-                )
-                server_preferences.update(edge_prefs)
-
-            if regional_servers:
-                print("\n--- Generating Regional Server Preferences (Level 2) ---")
-                regional_prefs = self.fog_pref_generator.generate_theoretical_server_preferences(
-                    regional_servers, self.tasks, self.users, self.transmission_delays,
-                    self.server_waiting_times, self.server_capacities
-                )
-                server_preferences.update(regional_prefs)
-
-            if cloud_servers:
-                print("\n--- Generating Cloud Server Preferences (Level 3) ---")
-                cloud_prefs = self.cloud_pref_generator.generate_theoretical_cloud_preferences(
-                    cloud_servers, self.tasks, self.users, self.transmission_delays,
-                    self.server_waiting_times, self.server_capacities
-                )
-                server_preferences.update(cloud_prefs)
-        else:
-            # Single-level mode: use fog preferences for all servers
-            server_preferences = self.fog_pref_generator.generate_theoretical_server_preferences(
-                self.servers, self.tasks, self.users, self.transmission_delays,
-                self.server_waiting_times, self.server_capacities
-            )
+        # Single-level mode: use ONE server preference generator for ALL servers
+        server_preferences = self.server_pref_generator.generate_theoretical_server_preferences(
+            self.servers, self.tasks, self.users, self.transmission_delays,
+            self.server_waiting_times, self.server_capacities
+        )
 
         self.server_preferences = server_preferences
         return server_preferences

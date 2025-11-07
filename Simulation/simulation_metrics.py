@@ -141,6 +141,11 @@ class SimulationMetrics:
         server_queues = {}
         
         for server_id, task_list in allocation.items():
+            # Skip LOCAL_PROCESSING tasks (they are processed on user devices, not servers)
+            if server_id == 'LOCAL_PROCESSING':
+                print(f"ℹ️  Skipping {len(task_list)} tasks marked for LOCAL_PROCESSING (processed on user devices)")
+                continue
+                
             if task_list:
                 # Find server info - with better error handling
                 try:
@@ -308,6 +313,10 @@ class SimulationMetrics:
         total_simulation_time = simulation_results['total_simulation_time']
         
         for server_id, task_list in allocation.items():
+            # Skip LOCAL_PROCESSING tasks (processed on user devices)
+            if server_id == 'LOCAL_PROCESSING':
+                continue
+                
             if task_list and total_simulation_time > 0:
                 # Calculate actual processing time for this server
                 total_processing_time = 0
@@ -333,6 +342,10 @@ class SimulationMetrics:
         total_cost = 0
         
         for server_id, task_list in allocation.items():
+            # Skip LOCAL_PROCESSING tasks (processed on user devices)
+            if server_id == 'LOCAL_PROCESSING':
+                continue
+                
             if task_list:
                 server = next(s for s in self.servers if s['id'] == server_id)
                 # Use default energy efficiency if not present
