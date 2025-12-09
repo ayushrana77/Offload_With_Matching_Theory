@@ -28,8 +28,8 @@ class SystemConfiguration:
     network_area_size: float = 100.0      # Deployment area size (meters)
     
     # Wireless communication parameters
-    transmission_power: float = 0.1       # Transmission power (Watts)
-    channel_bandwidth: float = 1e6        # Channel bandwidth (Hz)
+    transmission_power: float = 0.2       # Increased from 0.1: Better connectivity
+    channel_bandwidth: float = 10e6       # Doubled to 10 MHz: Faster data transfer
     noise_power: float = 1e-12           # Noise power (Watts)
     path_loss_exponent: float = 2.0      # Path loss exponent
     reference_distance: float = 1.0       # Reference distance (meters)
@@ -53,7 +53,7 @@ class SystemConfiguration:
     
     # Algorithm parameters
     max_matching_rounds: int = 20        # Maximum rounds for matching algorithm
-    preference_randomization_prob: float = 0.2  # Probability of preference randomization
+    preference_randomization_prob: float = 0.0  # Reduced to 0.0: Purely deterministic
     random_seed: Optional[int] = None    # Random seed for reproducibility (None = random each run)
     
     # Multi-level hierarchy parameters
@@ -66,7 +66,7 @@ class SystemConfiguration:
     cloud_servers: int = 1               # Level 3: Cloud servers (high latency, unlimited capacity)
     
     # Capacity configuration per level
-    edge_fog_capacity: int = 3           # Initial capacity for edge fog servers
+    edge_fog_capacity: int = 3           # Restored to 3: Balance utilization and speed
     regional_fog_capacity: int = 10      # Initial capacity for regional fog servers  
     cloud_capacity: int = 50             # Initial capacity for cloud servers
     
@@ -76,18 +76,18 @@ class SystemConfiguration:
     cloud_cpu_range: tuple = (8.0e9, 16.0e9)       # 8.0-16.0 GHz for cloud
     
     # Inter-level communication delays and costs
-    edge_to_regional_delay: float = 0.010   # 10ms delay edge → regional
-    regional_to_cloud_delay: float = 0.050  # 50ms delay regional → cloud
+    edge_to_regional_delay: float = 0.002   # Slashed to 2ms: Instant edge-regional link
+    regional_to_cloud_delay: float = 0.010  # Slashed to 10ms: Fast regional-cloud link
     iot_to_edge_delay: float = 0.002        # 2ms delay IoT → edge
     
     # Level preference weights (favor local processing)
-    edge_preference_weight: float = 1.0     # Highest preference for edge processing
-    regional_preference_weight: float = 0.7 # Medium preference for regional processing
-    cloud_preference_weight: float = 0.4    # Lowest preference for cloud processing
+    edge_preference_weight: float = 1.0     # Reverted to 1.0: Balanced Aggressive
+    regional_preference_weight: float = 0.95 # Reverted to 0.95: Balanced Aggressive
+    cloud_preference_weight: float = 0.90    # Reverted to 0.90: Balanced Aggressive
     
     # Local processing thresholds
     local_processing_threshold: float = 2.0  # Max waiting time (seconds) to keep task local
-    migration_benefit_threshold: float = 0.3 # Minimum improvement ratio to justify migration
+    migration_benefit_threshold: float = 0.0  # Reduced to 0.0: Free migration
     
     # Energy model parameters
     idle_power: float = 0.01             # Idle power consumption (Watts)

@@ -389,7 +389,7 @@ def main():
         num_servers=5,
         num_task_types=10,
         network_area_size=500.0,
-        fixed_task_count=1000,
+        fixed_task_count=1000,  # Standardized to 1000 tasks
         random_seed=42,  # Fixed seed for reproducible comparison
         
         use_multilevel=True,

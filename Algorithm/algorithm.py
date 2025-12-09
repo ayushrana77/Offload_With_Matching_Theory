@@ -275,8 +275,8 @@ class ProposedTaskOffloadingAlgorithm:
         print("\n📈 Building preference matrices using research paper formulas...")
         
         # Step 1: Generate user preferences using Formula 4
-        print("\n--- Creating User Preference Matrix (Formula 4) ---")
-        self.user_preferences = self.generate_user_preferences()
+        print("\n--- Creating Task Preference Matrix (Dynamic Best-Fit) ---")
+        self.user_preferences = self.generate_task_preferences()
         
         # Step 2: Generate server preferences using Formula 5  
         print("\n--- Creating Server Preference Matrix (Formula 5) ---")
@@ -287,17 +287,17 @@ class ProposedTaskOffloadingAlgorithm:
         print(f"   • Server preferences: {len(self.server_preferences)} servers × {len(self.tasks)} tasks")
         print(f"   • Ready for stable matching algorithm")
     
-    def generate_user_preferences(self) -> Dict[str, List[str]]:
+    def generate_task_preferences(self) -> Dict[str, List[str]]:
         """
-        Generate user preferences using theoretical formula: O_j(i) = 1/(ω_j^i(ζ) + ξ_j^i)
-        Users prefer servers with lower waiting time and communication delay
+        Generate TASK preferences using theoretical formula with dynamic power bonus.
+        Each task has its own preference list based on its characteristics (Heavy/Light).
         """
-        user_preferences = self.iot_pref_generator.generate_theoretical_user_preferences(
+        task_preferences = self.iot_pref_generator.generate_theoretical_task_preferences(
             self.users, self.servers, self.transmission_delays, self.server_waiting_times,
             self.server_capacities, self.tasks
         )
-        self.user_preferences = user_preferences
-        return user_preferences
+        self.user_preferences = task_preferences
+        return task_preferences
     
     def generate_server_preferences(self) -> Dict[str, List[str]]:
         """
@@ -394,30 +394,33 @@ class ProposedTaskOffloadingAlgorithm:
             
             # Pseudocode Line 17: Update IoT (user) preferences at start of each iteration
             # This ensures preferences reflect the most current waiting times
-            user_prefs = self.generate_user_preferences()
+            user_prefs = self.generate_task_preferences()
             
             # Track progress in this round
             tasks_assigned_this_round = 0
             proposals = {}  # server_id -> list of proposing tasks
             
-            # Phase 1: Task proposals through user preferences
+            # Phase 1: Task proposals through TASK preferences
             for task_id in list(unassigned_tasks):
-                user_id = task_to_user[task_id]
-                pref_index = task_current_preference[task_id]
+                # Use TASK-BASED preferences directly
+                # user_id = task_to_user[task_id]  # No longer needed for preference lookup
                 
-                if pref_index < len(user_prefs[user_id]):
-                    preferred_server = user_prefs[user_id][pref_index]
+                # Check if task has preferences (it should)
+                if task_id in user_prefs:
+                    pref_index = task_current_preference[task_id]
                     
-                    if preferred_server not in proposals:
-                        proposals[preferred_server] = []
-                    proposals[preferred_server].append(task_id)
-                    
-                    print(f"  Task {task_id} (via {user_id}) → {preferred_server}")
+                    if pref_index < len(user_prefs[task_id]):
+                        preferred_server = user_prefs[task_id][pref_index]
+                        
+                        if preferred_server not in proposals:
+                            proposals[preferred_server] = []
+                        proposals[preferred_server].append(task_id)
+                        
+                        print(f"  Task {task_id} → {preferred_server}")
+                    else:
+                        print(f"  ⚠️ WARNING: Task {task_id} exhausted all preferences!")
                 else:
-                    # Task has exhausted all preferences - this should not happen with unlimited capacity
-                    # Keep task in unassigned list, don't remove it!
-                    print(f"  ⚠️ WARNING: Task {task_id} exhausted all {len(user_prefs[user_id])} server preferences!")
-                    # DO NOT remove from unassigned_tasks - let preference regeneration help it
+                    print(f"  ⚠️ ERROR: Task {task_id} has no preferences generated!")
             
             # Phase 2: Server decisions with HYBRID CAPACITY
             for server_id, proposing_tasks in proposals.items():
@@ -558,7 +561,7 @@ class ProposedTaskOffloadingAlgorithm:
                 print("  📊 Updating preferences based on new waiting times...")
                 
                 # Regenerate user preferences with updated waiting times
-                user_prefs = self.generate_user_preferences()
+                user_prefs = self.generate_task_preferences()
                 
                 # Also update server preferences to reflect new loads
                 server_prefs = self.generate_server_preferences()
@@ -577,7 +580,7 @@ class ProposedTaskOffloadingAlgorithm:
                 # NOW check if any unassigned task still has preferences to explore
                 # This check is AFTER regeneration, so tasks have fresh preferences
                 has_viable_tasks = any(
-                    task_current_preference[task_id] < len(user_prefs[task_to_user[task_id]]) 
+                    task_current_preference[task_id] < len(user_prefs[task_id]) 
                     for task_id in unassigned_tasks
                 )
                 
@@ -588,11 +591,11 @@ class ProposedTaskOffloadingAlgorithm:
             # Handle aggressive preference update for deadlock breaking
             if consecutive_no_progress >= max_no_progress // 2 and unassigned_tasks:
                 print("  ⚠️  Aggressive update - adding randomization to break deadlock...")
-                import random
-                for user_id in user_prefs:
+                # Randomly shuffle tied preferences to create diversity
+                for task_id in user_prefs:
                     if len(unassigned_tasks) > 0:
                         # Randomly shuffle tied preferences to create diversity
-                        prefs = user_prefs[user_id].copy()
+                        prefs = user_prefs[task_id].copy()
                         # Create small groups and shuffle within groups to add diversity
                         mid = len(prefs) // 2
                         if random.random() < 0.3:  # 30% chance to shuffle top half
@@ -603,7 +606,7 @@ class ProposedTaskOffloadingAlgorithm:
                             bottom_half = prefs[mid:]
                             random.shuffle(bottom_half)
                             prefs[mid:] = bottom_half
-                        user_prefs[user_id] = prefs
+                        user_prefs[task_id] = prefs
             
             round_num += 1
         
@@ -899,27 +902,26 @@ def main():
     """Main function to run the proposed algorithm with multi-level support"""
     import time as time_module
     
-    # CRITICAL: Generate and SET random seed IMMEDIATELY (before any random operations)
-    random_seed = int(time_module.time() * 1000000) % (2**31 - 1)
-    set_random_seeds(random_seed)  # Set seeds BEFORE any random operations!
-    
     # Create configuration for multi-level fog-cloud architecture
     config = SystemConfiguration(
-        num_users=10,                      # 10 users (for task distribution)
+        num_users=10,                      # 10 users (simulating small-scale test)
         num_servers=5,                     # This will be overridden by multi-level settings
         num_task_types=10,                 # 10 task types for variety
         network_area_size=500.0,           # Large coverage area
-        fixed_task_count=1000,             # Generate exactly 100tasks
-        random_seed=random_seed,           # Store seed for reproducibility
+        fixed_task_count=1000,             # Standardized to 1000 tasks (matches batch run)
+        random_seed=42,                    # Fixed seed for REPRODUCIBLE results
         
         # Enable multi-level mode
         use_multilevel=True                # Enable multi-level hierarchy
     )
     
+    # CRITICAL: Set random seed explicitly from config
+    set_random_seeds(config.random_seed)
+    
+    
     # Display seed information
-    print(f"🎲 Using random seed: {random_seed}")
-    print(f"   (To reproduce: set random_seed={random_seed} in config)")
-    print(f"   Different results expected on each run!")
+    print(f"🎲 Using FIXED random seed: {config.random_seed}")
+    print(f"   (Result is reproducible)")
     
     # Create and run the proposed algorithm
     proposed_algorithm = ProposedTaskOffloadingAlgorithm(config)

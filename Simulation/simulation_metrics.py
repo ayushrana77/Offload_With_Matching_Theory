@@ -97,10 +97,16 @@ class SimulationMetrics:
         """
         # Add fresh randomness for simulation to get realistic variations each run
         # This ensures different simulation behavior even with same allocation
-        import time as time_module
-        simulation_seed = int(time_module.time() * 1000000) % (2**31 - 1)
+        # Use fixed seed from config if available for reproducibility, otherwise use time-based seed
+        if self.config and hasattr(self.config, 'random_seed') and self.config.random_seed is not None:
+            simulation_seed = self.config.random_seed
+            print(f"\n🎲 Simulation using FIXED seed from config: {simulation_seed} (for reproducible metrics)")
+        else:
+            import time as time_module
+            simulation_seed = int(time_module.time() * 1000000) % (2**31 - 1)
+            print(f"\n🎲 Simulation using RANDOM time-based seed: {simulation_seed} (for realistic variations)")
+        
         random.seed(simulation_seed)
-        print(f"\n🎲 Simulation using random seed: {simulation_seed} (for realistic variations)")
         
         print("\n======================================================================")
         print("🔄 SIMULATING TASK EXECUTION AFTER STABLE MATCHING")

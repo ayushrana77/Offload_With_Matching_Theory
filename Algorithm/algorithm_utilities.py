@@ -58,7 +58,7 @@ class AlgorithmUtilities:
                     'level': 1,
                     'type': 'edge_fog',
                     'position': (x, y),
-                    'computational_capability': random.uniform(20e9, 40e9),
+                    'computational_capability': random.uniform(1e9, 2e9),  # 1-2 GHz (was 2-4)
                     'available_resources': random.uniform(0.5, 1.0),
                     'energy_efficiency': random.uniform(0.7, 0.9),
                     'processing_cost': random.uniform(0.01, 0.03),
@@ -80,7 +80,7 @@ class AlgorithmUtilities:
                     'level': 2,
                     'type': 'regional_fog',
                     'position': (x, y),
-                    'computational_capability': random.uniform(50e9, 80e9),
+                    'computational_capability': random.uniform(2e9, 4e9),  # 2-4 GHz (was 4-8)
                     'available_resources': random.uniform(0.6, 1.0),
                     'energy_efficiency': random.uniform(0.6, 0.8),
                     'processing_cost': random.uniform(0.005, 0.015),
@@ -102,7 +102,7 @@ class AlgorithmUtilities:
                     'level': 3,
                     'type': 'cloud',
                     'position': (x, y),
-                    'computational_capability': random.uniform(100e9, 200e9),
+                    'computational_capability': random.uniform(4e9, 8e9),  # 4-8 GHz (was 8-16)
                     'available_resources': random.uniform(0.8, 1.0),
                     'energy_efficiency': random.uniform(0.5, 0.7),
                     'processing_cost': random.uniform(0.001, 0.008),
@@ -123,7 +123,7 @@ class AlgorithmUtilities:
                     'level': 1,
                     'type': 'fog',
                     'position': (x, y),
-                    'computational_capability': random.uniform(10e9, 50e9),
+                    'computational_capability': random.uniform(1e9, 3e9),  # 1-3 GHz (was 2-5)
                     'available_resources': random.uniform(0.5, 1.0),
                     'energy_efficiency': random.uniform(0.6, 0.9),
                     'processing_cost': random.uniform(0.01, 0.05),
@@ -172,7 +172,7 @@ class AlgorithmUtilities:
                     'user_id': user['id'],
                     'type': task_type,
                     'task_type': random.randint(0, config.num_task_types - 1),
-                    'computation_requirement': random.uniform(100, 1000) * 1e6,  # CPU cycles (hardcoded like Generation)
+                    'computation_requirement': random.uniform(3000, 7000) * 1e6,  # CPU cycles (ULTRA load: 3000-7000M)
                     'data_size': random.uniform(0.5, 2.0) * 1e6,  # Data size in bits (hardcoded like Generation)
                     'deadline': random.uniform(1.0, 5.0),  # Deadline in seconds (hardcoded like Generation)
                     'priority': random.randint(1, 5),

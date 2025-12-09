@@ -466,24 +466,23 @@ class RandomTaskOffloadingAlgorithm:
 
 def main():
     """Main function to run the random algorithm"""
-    # Use truly random seed for different results each time
-    import time as time_module
-    random_seed = int(time_module.time() * 1000) % 1000000  # Use current time as seed
+    # Use fixed seed for reproducible comparison
+    random_seed = 42
     
     config = SystemConfiguration(
         num_users=10,
         num_servers=5,
         num_task_types=10,
         network_area_size=500.0,
-        fixed_task_count=1000,
-        random_seed=random_seed,  # Different seed each run
+        fixed_task_count=1000,      # Standardized to 1000 tasks
+        random_seed=42,            # Fixed seed for REPRODUCIBLE results
         
         use_multilevel=True,
         local_processing_threshold=2.0
     )
     
     set_random_seeds(random_seed)
-    print(f"🎲 Using random seed: {random_seed} (changes each run)")
+    print(f"🎲 Using FIXED random seed: {random_seed}")
     
     # Create and run the random algorithm
     random_algorithm = RandomTaskOffloadingAlgorithm(config)
