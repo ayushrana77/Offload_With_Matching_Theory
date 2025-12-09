@@ -95,6 +95,13 @@ class SimulationMetrics:
         Returns:
             Dictionary containing detailed simulation results
         """
+        # Add fresh randomness for simulation to get realistic variations each run
+        # This ensures different simulation behavior even with same allocation
+        import time as time_module
+        simulation_seed = int(time_module.time() * 1000000) % (2**31 - 1)
+        random.seed(simulation_seed)
+        print(f"\n🎲 Simulation using random seed: {simulation_seed} (for realistic variations)")
+        
         print("\n======================================================================")
         print("🔄 SIMULATING TASK EXECUTION AFTER STABLE MATCHING")
         print("======================================================================")
@@ -138,7 +145,12 @@ class SimulationMetrics:
         """
         Initialize execution queues for each server with assigned tasks
         """
+        from .simulation_utilities import SimulationUtilities
+        
         server_queues = {}
+        
+        # Track all task arrival times for realistic simulation
+        task_arrival_times = {}
         
         for server_id, task_list in allocation.items():
             # Skip LOCAL_PROCESSING tasks (they are processed on user devices, not servers)
@@ -156,8 +168,15 @@ class SimulationMetrics:
                     print(f"Allocation keys: {list(allocation.keys())}")
                     raise ValueError(f"Server '{server_id}' from allocation not found in servers list")
                 
+                # Generate realistic arrival times for each task (within first 5 seconds)
+                # This simulates asynchronous IoT task submission
+                for task_id in task_list:
+                    arrival_time = SimulationUtilities.generate_task_arrival_time(max_arrival_window=5.0)
+                    task_arrival_times[task_id] = arrival_time
+                
                 server_queues[server_id] = {
                     'tasks': task_list.copy(),
+                    'task_arrival_times': {tid: task_arrival_times[tid] for tid in task_list},
                     'server_info': server_info,
                     'current_task': None,
                     'task_start_time': 0,
@@ -165,11 +184,12 @@ class SimulationMetrics:
                     'execution_log': []
                 }
                 
-                # Log initial queuing of all tasks at time 0
+                # Log initial queuing of all tasks with their arrival times
                 for task_id in task_list:
+                    arrival = task_arrival_times[task_id]
                     server_queues[server_id]['execution_log'].append({
                         'event': 'task_queued',
-                        'time': 0.0,
+                        'time': arrival,
                         'task_id': task_id
                     })
         
@@ -193,15 +213,20 @@ class SimulationMetrics:
             active_servers = 0
             
             for server_id, queue_info in server_queues.items():
-                # Start new task if server is idle and has tasks in queue
+                # Start new task if server is idle and has tasks in queue that have arrived
                 if queue_info['current_task'] is None and queue_info['tasks']:
-                    self._start_new_task(server_id, queue_info, simulation_time, simulation_results)
+                    # Check if the next task has arrived (only process tasks that have arrived)
+                    next_task_id = queue_info['tasks'][0]
+                    task_arrival_time = queue_info['task_arrival_times'].get(next_task_id, 0.0)
+                    
+                    if simulation_time >= task_arrival_time:
+                        self._start_new_task(server_id, queue_info, simulation_time, simulation_results)
                 
                 # Check if current task is completed
                 if queue_info['current_task'] and simulation_time >= queue_info['current_task']['completion_time']:
                     self._complete_current_task(server_id, queue_info, simulation_time, simulation_results)
                 
-                # Count active servers
+                # Count active servers (including servers waiting for task arrivals)
                 if queue_info['current_task'] or queue_info['tasks']:
                     active_servers += 1
             
@@ -228,26 +253,86 @@ class SimulationMetrics:
         current_task_id = queue_info['tasks'].pop(0)
         task_info = next(t for t in self.tasks if t['id'] == current_task_id)
         
-        # Calculate processing time
-        processing_time = task_info['computation_requirement'] / queue_info['server_info']['computational_capability']
+        # Calculate base processing time
+        base_processing_time = task_info['computation_requirement'] / queue_info['server_info']['computational_capability']
+        
+        # Add realistic random variations to simulate real-world conditions
+        from .simulation_utilities import SimulationUtilities
+        
+        # 1. Add processing time variation (±25% for CPU scheduling, cache misses, temperature throttling, etc.)
+        # Increased from 15% to 25% for more realistic real-world variations
+        realistic_processing_time = SimulationUtilities.add_processing_time_variation(
+            base_processing_time, variation_percent=25.0
+        )
+        
+        # 2. Add startup delay (context switching, task initialization, cache warming)
+        # Increased range from 2-15ms to 5-30ms for more realistic variations
+        startup_delay = SimulationUtilities.add_startup_delay(min_delay=0.005, max_delay=0.030)
+        
+        # 3. Add network jitter to transmission delay from user to server
+        network_jitter = 0
+        if self.transmission_delays is not None:
+            # Get user of this task
+            user_id = task_info.get('user_id', None)
+            if user_id:
+                try:
+                    user_idx = next(i for i, u in enumerate(self.users) if u['id'] == user_id)
+                    server_idx = next(i for i, s in enumerate(self.servers) if s['id'] == server_id)
+                    base_transmission_delay = self.transmission_delays[user_idx][server_idx]
+                    # Add realistic network jitter (±20% increased from ±10%)
+                    transmission_with_jitter = SimulationUtilities.add_network_jitter(
+                        base_transmission_delay, jitter_percent=20.0
+                    )
+                    network_jitter = transmission_with_jitter - base_transmission_delay
+                except (StopIteration, IndexError, TypeError):
+                    network_jitter = 0
+        
+        # 4. Account for concurrent task interference (if other tasks are running)
+        # Count how many other tasks are currently being processed on this server
+        # (This is a simplified model - ideally would track actual concurrent execution)
+        concurrent_tasks = 1  # Current task
+        
+        # Apply interference overhead
+        final_processing_time_with_interference = SimulationUtilities.simulate_task_interference(
+            realistic_processing_time, concurrent_tasks=concurrent_tasks
+        )
+        
+        # Total realistic processing time = processing + startup + network jitter + interference
+        final_processing_time = final_processing_time_with_interference + startup_delay + max(network_jitter, 0)
         
         queue_info['current_task'] = {
             'task_id': current_task_id,
             'start_time': simulation_time,
-            'processing_time': processing_time,
-            'completion_time': simulation_time + processing_time
+            'processing_time': final_processing_time,
+            'base_processing_time': base_processing_time,
+            'realistic_processing_time': realistic_processing_time,
+            'startup_delay': startup_delay,
+            'network_jitter': network_jitter,
+            'completion_time': simulation_time + final_processing_time
         }
         
         # Store task start time for waiting time calculation
         simulation_results['task_start_times'][current_task_id] = simulation_time
         
-        print(f"⚡ {simulation_time:.1f}s: {server_id} starts processing {current_task_id} (est. {processing_time:.3f}s)")
+        # Show both theoretical and realistic times with detailed breakdown
+        variation_pct = ((final_processing_time - base_processing_time) / base_processing_time) * 100
+        jitter_info = f", jitter: {network_jitter*1000:+.2f}ms" if network_jitter != 0 else ""
+        print(f"⚡ {simulation_time:.1f}s: {server_id} starts {current_task_id} "
+              f"(theoretical: {base_processing_time:.3f}s, realistic: {final_processing_time:.3f}s, "
+              f"startup: {startup_delay*1000:.2f}ms{jitter_info}, "
+              f"total variation: {variation_pct:+.1f}%)")
         
         queue_info['execution_log'].append({
             'event': 'task_start',
             'time': simulation_time,
             'task_id': current_task_id,
-            'processing_time': processing_time
+            'base_processing_time': base_processing_time,
+            'realistic_processing_time': realistic_processing_time,
+            'startup_delay': startup_delay,
+            'network_jitter': network_jitter,
+            'final_processing_time': final_processing_time,
+            'variation_percent': variation_pct,
+            'concurrent_tasks': concurrent_tasks
         })
     
     def _complete_current_task(self, server_id: str, queue_info: Dict, simulation_time: float, simulation_results: Dict):
@@ -276,8 +361,10 @@ class SimulationMetrics:
     
     def _calculate_waiting_times_from_simulation(self, simulation_results: Dict):
         """
-        Calculate waiting times for each task from simulation data
+        Calculate waiting times for each task from simulation data with realistic variations
         """
+        from .simulation_utilities import SimulationUtilities
+        
         waiting_times = {}
         
         for task_id in simulation_results['task_completion_times'].keys():
@@ -287,9 +374,21 @@ class SimulationMetrics:
             # Find when task started processing
             start_time = simulation_results['task_start_times'].get(task_id, 0.0)
             
-            # Waiting time = time from queuing to start of processing
-            waiting_time = start_time - queue_time
-            waiting_times[task_id] = waiting_time
+            # Base waiting time = time from queuing to start of processing
+            base_waiting_time = start_time - queue_time
+            
+            # Add realistic queue wait variation based on system load
+            # Estimate load factor based on number of tasks vs servers
+            num_tasks = len(simulation_results['task_completion_times'])
+            num_servers = len([s for s in self.servers])
+            load_factor = max(1.0, num_tasks / (num_servers * 3))  # Normalize by expected capacity
+            
+            # Apply queue wait variation (will add variation to waiting time)
+            realistic_waiting_time = SimulationUtilities.add_queue_wait_variation(
+                base_waiting_time, load_factor=min(load_factor, 3.0)  # Cap at 3x load
+            )
+            
+            waiting_times[task_id] = realistic_waiting_time
         
         simulation_results['task_waiting_times'] = waiting_times
     
