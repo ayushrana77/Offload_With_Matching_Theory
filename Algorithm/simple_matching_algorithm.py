@@ -885,8 +885,10 @@ def main():
         fixed_task_count=1000,             # Standardized to 1000 tasks
         random_seed=42,                    # Fixed seed for REPRODUCIBLE results
         
-        # This is a SINGLE-LEVEL algorithm (no hierarchy, no local processing)
-        use_multilevel=False               # Disable multi-level hierarchy
+        # This is strictly for HARDWARE CONSISTENCY with other algorithms
+        # The algorithm itself will still use "flat" matching logic (single pool)
+        # but it will now perceive the cloud server as just another node.
+        use_multilevel=True               # Enable multi-level hierarchy (hardware only)
     )
     
     # Set random seed based on config (None = truly random)
